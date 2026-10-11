@@ -485,11 +485,12 @@ export async function runPhase3fSuite({ runId = `phase3f-suite_${Date.now()}` } 
     const principal = { id: 'u_admin', role: 'admin' };
     // The exact shapes a routine regression command, a test harness or a stale script carries.
     const routineValues = [undefined, null, '', '   ', 'test', 'regression', 'phase3f-security-suite-3', 'devAnalysis', 'suite'];
-    const refusals = routineValues.map((value) => productionExecutionAccess({ authorization: value, principal, path: 'ingestTrends' }));
+    const refusals = routineValues.map((value) => productionExecutionAccess({ authorization: value, principal, path: 'ingestTrends', action: 'run' }));
     return {
       ok: refusals.every((entry) => entry.ok === false && entry.status === 403
         && entry.error_category === 'production_execution_not_authorized'
-        && entry.authorization_accepted === false && entry.gate.authorized_runs.length === 0),
+        && entry.authorization_accepted === false && entry.gate.armed_entries.length === 0
+        && entry.gate.single_use === false),
       note: {
         routine_values_tried: routineValues.length,
         statuses: Array.from(new Set(refusals.map((entry) => entry.status))),
@@ -509,30 +510,110 @@ export async function runPhase3fSuite({ runId = `phase3f-suite_${Date.now()}` } 
         && nonAdmin.ok === false && nonAdmin.status === 403 && nonAdmin.error_category === category
         && noId.ok === false && noId.status === 401
         && anonymous.authorization_accepted === false
-        && anonymous.gate.authorized_runs.length === 0
+        && anonymous.gate.armed_entries.length === 0
         && nonAdmin.gate.stage === PRODUCTION_EXECUTION_GATE.stage
         && noId.gate.stage === PRODUCTION_EXECUTION_GATE.stage,
       note: { anonymous: anonymous.status, non_administrator: nonAdmin.status, administrator_without_an_id: noId.status },
     };
   });
 
-  await record('execution_gate.an_armed_run_is_admitted_and_only_for_that_id', async () => {
+  await record('execution_gate.an_armed_authorization_is_admitted_only_for_its_own_scope', async () => {
     // The mechanism is proven on a supplied list, so the real constant stays empty.
-    const armedList = ['phase3g-recovery-run-1'];
+    const now = Date.parse('2026-10-12T00:00:00.000Z');
+    const entries = [
+      { id: 'phase3g-run-1', path: 'ingestTrends', action: 'run', armed_at: '2026-10-11T23:00:00.000Z', expires_at: '2026-10-12T03:00:00.000Z', note: 'one bounded ingestion' },
+      { id: 'phase3g-enrich-1', path: 'enrichSourceText', action: 'enrich', expires_at: '2026-10-12T03:00:00.000Z', note: 'ten title-only records' },
+    ];
+    const check = (authorization, path, action) => productionExecutionAuthorized(authorization, { path, action, entries, now });
     return {
-      ok: productionExecutionAuthorized('phase3g-recovery-run-1', armedList) === true
-        && productionExecutionAuthorized('phase3g-recovery-run-2', armedList) === false
-        && productionExecutionAuthorized('phase3g-recovery-run-1', []) === false
-        && productionExecutionAuthorized('   ', armedList) === false
-        && productionExecutionAuthorized(null, armedList) === false
-        && productionExecutionAuthorized({ id: 'phase3g-recovery-run-1' }, armedList) === false
-        && productionExecutionAuthorized(' phase3g-recovery-run-1 ', armedList) === true,
+      ok: check('phase3g-run-1', 'ingestTrends', 'run').authorized === true
+        && check(' phase3g-run-1 ', 'ingestTrends', 'run').authorized === true
+        && check('phase3g-run-2', 'ingestTrends', 'run').reason === 'id_not_on_the_authorization_list'
+        && check('phase3g-run-1', [], 'run').reason === 'id_not_on_the_authorization_list'
+        && check('phase3g-run-1', 'enrichSourceText', 'enrich').reason === 'authorization_is_scoped_to_another_action'
+        && check('phase3g-enrich-1', 'ingestTrends', 'run').reason === 'authorization_is_scoped_to_another_action'
+        && check('phase3g-run-1', 'ingestTrends', 'dry_run').reason === 'authorization_is_scoped_to_another_action'
+        && check('phase3g-run-1', 'ingestTrends', undefined).reason === 'authorization_is_scoped_to_another_action'
+        && check('', 'ingestTrends', 'run').reason === 'no_authorization_supplied'
+        && check('   ', 'ingestTrends', 'run').reason === 'no_authorization_supplied'
+        && check(null, 'ingestTrends', 'run').reason === 'no_authorization_supplied'
+        && check({ id: 'phase3g-run-1' }, 'ingestTrends', 'run').reason === 'no_authorization_supplied',
       note: {
-        listed_id: productionExecutionAuthorized('phase3g-recovery-run-1', armedList),
-        other_id: productionExecutionAuthorized('phase3g-recovery-run-2', armedList),
-        empty_list: productionExecutionAuthorized('phase3g-recovery-run-1', []),
-        blank: productionExecutionAuthorized('   ', armedList),
-        non_string: productionExecutionAuthorized({ id: 'x' }, armedList),
+        its_own_scope: check('phase3g-run-1', 'ingestTrends', 'run').reason,
+        reused_for_another_action: check('phase3g-run-1', 'enrichSourceText', 'enrich').reason,
+        wrong_action_on_its_own_path: check('phase3g-run-1', 'ingestTrends', 'dry_run').reason,
+        unknown_id: check('phase3g-run-2', 'ingestTrends', 'run').reason,
+      },
+    };
+  });
+
+  await record('execution_gate.expiry_is_required_and_enforced', async () => {
+    const now = Date.parse('2026-10-12T00:00:00.000Z');
+    const scoped = (entry) => productionExecutionAuthorized('phase3g-run-1', { path: 'ingestTrends', action: 'run', entries: [entry], now });
+    const live = scoped({ id: 'phase3g-run-1', path: 'ingestTrends', action: 'run', expires_at: '2026-10-12T06:00:00.000Z' });
+    const expired = scoped({ id: 'phase3g-run-1', path: 'ingestTrends', action: 'run', expires_at: '2026-10-11T23:59:00.000Z' });
+    const atTheBoundary = scoped({ id: 'phase3g-run-1', path: 'ingestTrends', action: 'run', expires_at: '2026-10-12T00:00:00.000Z' });
+    const noExpiry = scoped({ id: 'phase3g-run-1', path: 'ingestTrends', action: 'run' });
+    const junkExpiry = scoped({ id: 'phase3g-run-1', path: 'ingestTrends', action: 'run', expires_at: 'whenever' });
+    return {
+      ok: live.authorized === true && live.entry.expires_at === '2026-10-12T06:00:00.000Z'
+        && expired.reason === 'authorization_expired_or_missing_an_expiry'
+        && atTheBoundary.reason === 'authorization_expired_or_missing_an_expiry'
+        && noExpiry.reason === 'authorization_expired_or_missing_an_expiry'
+        && junkExpiry.reason === 'authorization_expired_or_missing_an_expiry',
+      note: {
+        inside_the_window: live.reason, expired: expired.reason,
+        at_the_expiry_instant: atTheBoundary.reason,
+        without_an_expiry: noExpiry.reason, unparseable_expiry: junkExpiry.reason,
+      },
+    };
+  });
+
+  await record('execution_gate.single_use_is_not_guaranteed_and_the_limitation_is_declared', async () => {
+    const now = Date.parse('2026-10-12T00:00:00.000Z');
+    const entries = [{ id: 'phase3g-run-1', path: 'ingestTrends', action: 'run', expires_at: '2026-10-12T06:00:00.000Z' }];
+    const principal = { id: 'u_admin', role: 'admin' };
+    const attempt = () => productionExecutionAccess({
+      authorization: 'phase3g-run-1', principal, path: 'ingestTrends', action: 'run', authorizedRuns: entries, now,
+    });
+    const attempts = [attempt(), attempt(), attempt()];
+    return {
+      ok: attempts.every((entry) => entry.ok === true)
+        && /not single-use/i.test(PRODUCTION_EXECUTION_LIMITATIONS.not_single_use)
+        && PRODUCTION_EXECUTION_LIMITATIONS.replay_protection.length > 40
+        && PRODUCTION_EXECUTION_LIMITATIONS.stale_entry_risk.length > 40
+        && !/single-use|exactly once|replay-proof/i.test(JSON.stringify(PRODUCTION_EXECUTION_GATE)),
+      note: {
+        attempts_admitted_with_the_same_id: attempts.map((entry) => entry.ok),
+        declared_limitation: PRODUCTION_EXECUTION_LIMITATIONS.not_single_use,
+        what_limits_replay: PRODUCTION_EXECUTION_LIMITATIONS.replay_protection,
+      },
+    };
+  });
+
+  await record('execution_gate.routine_tests_cannot_arm_production_execution', async () => {
+    const before = JSON.stringify(PRODUCTION_EXECUTION_GATE.authorized_runs);
+    const attempt = productionExecutionAccess({
+      authorization: 'phase3g-run-1',
+      principal: { id: 'u_admin', role: 'admin' },
+      path: 'ingestTrends',
+      action: 'run',
+      // A caller trying to supply the list itself is ignored: the scope and the entries come from
+      // this app's source, never from a request.
+      authorizedRuns: [{ id: 'phase3g-run-1', path: 'ingestTrends', action: 'run', expires_at: '2099-01-01T00:00:00.000Z' }],
+    });
+    const after = JSON.stringify(PRODUCTION_EXECUTION_GATE.authorized_runs);
+    return {
+      ok: before === '[]' && after === before
+        && PRODUCTION_EXECUTION_GATE.authorization_source === 'source constant only'
+        && /no request field, no entity, no environment variable/i.test(PRODUCTION_EXECUTION_GATE.authorization_source_note)
+        && PRODUCTION_EXECUTION_GATE.require_explicit_authorization === true
+        && attempt.requested_scope.path === 'ingestTrends' && attempt.requested_scope.action === 'run',
+      note: {
+        armed_before_the_suite: before,
+        armed_after_the_suite: after,
+        source: PRODUCTION_EXECUTION_GATE.authorization_source,
+        note: 'a supplied authorizedRuns list is only reachable from in-process code and from this regression; the request path never passes one, so it cannot arm anything',
       },
     };
   });
@@ -553,7 +634,8 @@ export async function runPhase3fSuite({ runId = `phase3f-suite_${Date.now()}` } 
         && anonymous.ok === false && anonymous.status === 401 && anonymous.stage === 'identity'
         && reader.ok === false && reader.status === 403 && reader.stage === 'identity'
         && armedElsewhere.ok === false && armedElsewhere.stage === 'production_execution'
-        && incident.gate.authorized_runs.length === 0,
+        && incident.gate.armed_entries.length === 0
+        && incident.gate.single_use === false,
       note: {
         incident_call: { stage: incident.stage, status: incident.status, category: incident.error_category },
         labelled_call: { stage: labelled.stage, status: labelled.status },

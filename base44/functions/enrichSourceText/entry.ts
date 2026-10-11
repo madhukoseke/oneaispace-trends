@@ -75,6 +75,7 @@ export default async function (req) {
         authorization: payload.execution_authorization,
         principal: user,
         path: 'enrichSourceText',
+        action: 'enrich',
       });
       if (!execution.ok) {
         return Response.json({

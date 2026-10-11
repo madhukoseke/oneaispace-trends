@@ -162,6 +162,7 @@ export function ingestTrendsAccess({ principal, body } = {}) {
     authorization: body && body.execution_authorization,
     principal,
     path: 'ingestTrends',
+    action: 'run',
   });
   if (!execution.ok) return { ...execution, stage: 'production_execution', identity };
 
