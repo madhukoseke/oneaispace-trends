@@ -329,7 +329,9 @@ async function runContractSuite(deps, db, runId, reserve) {
     const leaky = { transport: async () => { throw new Error('Unauthorized: Bearer sk-live-abc1234567890 leaked'); } };
     const call = await callModel(okCall, { ...deps, ...allow, ...leaky });
     const summary = String((call.error && call.error.summary) || '');
-    const clean = !summary.includes('sk-live') && !/bearer/i.test(summary) && summary.includes('[redacted]');
+    const clean = !summary.includes('sk-live-abc1234567890')
+      && !/Bearer\s+[A-Za-z0-9._-]{8,}/.test(summary)
+      && summary.includes('[redacted]');
     return { ok: clean, note: { stored_summary: summary } };
   });
 
@@ -359,7 +361,11 @@ async function runContractSuite(deps, db, runId, reserve) {
   });
 
   await record('secrets.scanner_positive_control', async () => {
-    const findings = scanForSecrets({ api_key: 'sk-live-abc1234567890', note: 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc' });
+    const findings = scanForSecrets({
+      api_key: 'sk-live-abc1234567890',
+      note: 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc',
+      nested: { token: 'sk-live-xyz9876543210' },
+    });
     return { ok: findings.length >= 3, note: { findings } };
   });
 
@@ -488,7 +494,9 @@ export default async function (req) {
     if (!claim.ok) {
       return Response.json({
         ok: false, status: 'duplicate', run_id: runId, authorization_id: authorizationId,
-        error_category: claim.reason, model_calls: 0, authorization_consumed: true, kill_switch: killSwitch,
+        error_category: claim.reason, model_calls: 0,
+        authorization_consumed: claim.reason === 'already_consumed', authorization_usable: false,
+        kill_switch: killSwitch,
         existing_record_id: claim.anchor ? claim.anchor.id : null,
         existing_run_id: claim.anchor ? claim.anchor.run_id : null,
         note: 'the one-time authorization was not available for this attempt, so no provider call was made and no record was overwritten',

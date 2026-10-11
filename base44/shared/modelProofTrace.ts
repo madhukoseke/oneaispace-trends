@@ -123,9 +123,19 @@ export async function claimAuthorization(db, { authorizationId, seed, token }) {
 
   let anchor = existing[0] || null;
   if (!anchor) {
-    anchor = await persistRun(db, { ...seed, authorization_id: authorizationId });
+    const created = await persistRun(db, { ...seed, authorization_id: authorizationId });
     const after = await findAnchors(db, authorizationId);
-    if (after.length !== 1) return { ok: false, reason: 'duplicate_anchors', anchors: after.length };
+    if (after.length !== 1) {
+      // Two simultaneous first attempts each created a record. Both refuse, and
+      // this attempt's own record is closed out so it cannot read as a run that is
+      // still going. Nothing else is touched.
+      await updateRun(db, created.id, {
+        status: 'blocked', error_category: 'duplicate_anchors',
+        error_summary: 'blocked: more than one claim record exists for this authorization id, so the attempt was refused before any provider call',
+        finished_at: new Date().toISOString(),
+      });
+      return { ok: false, reason: 'duplicate_anchors', anchors: after.length, anchor: created };
+    }
     anchor = after[0];
   }
 
