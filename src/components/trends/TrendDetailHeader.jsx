@@ -1,15 +1,20 @@
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
-import EvidenceStatus from "./EvidenceStatus";
-import { momentumLabel, relativeTime } from "@/lib/trends";
+import { relativeTime } from "@/lib/trends";
 
-// Compact trend identity plus what is actually known about it: how much it holds,
-// which sources it came from, whether momentum is measured at all, that evidence
-// has not been evaluated, and when the catalogue last refreshed. A trend score is
-// only shown when one exists, and none does yet.
+// Compact topic identity: what it holds, how many distinct sources those records
+// came from, and when the catalogue last refreshed. No momentum and no evidence
+// badge is shown here: neither is measured for a broad topic, and a topic is not
+// a claim that could be verified.
 export default function TrendDetailHeader({ trend, sourceCount, run }) {
-  const momentum = momentumLabel(trend.momentum);
   const refreshed = run && run.finished_at ? relativeTime(run.finished_at) : "";
+  const meta = [
+    `${trend.item_count || 0} ${trend.item_count === 1 ? "item" : "items"}`,
+    sourceCount ? `${sourceCount} ${sourceCount === 1 ? "source" : "sources"}` : "",
+    refreshed ? `Updated ${refreshed}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <header>
@@ -24,38 +29,13 @@ export default function TrendDetailHeader({ trend, sourceCount, run }) {
         <span className="text-foreground/80">{trend.name}</span>
       </nav>
 
-      <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">{trend.name}</h1>
-          {trend.description ? (
-            <p className="mt-1.5 max-w-2xl text-[13.5px] leading-relaxed text-muted-foreground">{trend.description}</p>
-          ) : null}
-        </div>
+      <h1 className="mt-2.5 text-[24px] font-semibold tracking-[-0.02em] sm:text-[27px]">{trend.name}</h1>
 
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground lg:justify-end">
-          <span className="tabular-nums">{trend.item_count} items</span>
-          {sourceCount ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <span>{sourceCount} sources</span>
-            </>
-          ) : null}
-          {momentum ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <span title={trend.momentum_basis || ""}>{momentum}</span>
-            </>
-          ) : null}
-          <span aria-hidden="true">·</span>
-          <EvidenceStatus />
-          {refreshed ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <span>Updated {refreshed}</span>
-            </>
-          ) : null}
-        </p>
-      </div>
+      {trend.description ? (
+        <p className="mt-1.5 max-w-2xl text-[13.5px] leading-relaxed text-muted-foreground">{trend.description}</p>
+      ) : null}
+
+      <p className="mt-2 text-[12.5px] tabular-nums text-muted-foreground">{meta}</p>
     </header>
   );
 }

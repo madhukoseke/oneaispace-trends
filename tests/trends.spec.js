@@ -100,25 +100,76 @@ test.describe("filters and search", () => {
   });
 });
 
-test.describe("trend detail", () => {
-  test("shows breadcrumb, summary, evidence status and the stated facts", async ({ page }) => {
-    await page.goto(TRENDS);
-    const strip = page.getByRole("navigation", { name: "Browse by trend" });
-    await strip.getByRole("link").nth(1).click();
-    await expect(page).toHaveURL(/\/trends\/.+/);
+test.describe("topic pages", () => {
+  test("header keeps title, description, counts and refresh time, and drops the metadata rows", async ({ page }) => {
+    await page.goto(`${TRENDS}/frontier-models`);
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toBeVisible();
-    await expect(page.getByText("Evidence:").first()).toBeVisible();
-    await expect(page.getByText("Not evaluated").first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Frontier Models", exact: true })).toBeVisible();
+    await expect(page.getByText(/^\d+ items · \d+ sources · Updated /)).toBeVisible();
 
-    for (const row of ["What happened?", "Why it matters", "Evidence and claims", "Related sources", "Original links"]) {
-      await expect(page.getByText(row, { exact: true })).toBeVisible();
+    // Removed from topic pages, and not to be reintroduced.
+    for (const gone of ["What happened?", "Why it matters", "Evidence and claims", "Related sources", "Original links"]) {
+      await expect(page.getByText(gone, { exact: true })).toHaveCount(0);
+    }
+    await expect(page.getByText(/Surging|Rising|Cooling/)).toHaveCount(0);
+  });
+
+  test("Latest Content is the primary section and keeps every filter", async ({ page }) => {
+    await page.goto(`${TRENDS}/agents`);
+    await expect(page.getByRole("heading", { name: "Latest Content", exact: true })).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "Format" })).toBeVisible();
+    await expect(page.getByLabel("Filter by subtopic")).toBeVisible();
+    await expect(page.getByLabel("Filter by source")).toBeVisible();
+    await expect(page.getByLabel("Sort results")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Filters" })).toBeVisible();
+  });
+
+  test("every topic route renders the same structure with content", async ({ page }) => {
+    const slugs = [
+      "frontier-models", "open-models", "agents", "reasoning",
+      "generative-media", "research", "developer-tools", "safety-policy", "industry",
+    ];
+    for (const slug of slugs) {
+      await page.goto(`${TRENDS}/${slug}`);
+      await expect(page.getByRole("heading", { name: "Latest Content", exact: true })).toBeVisible();
+      await expect(page.locator("article").first()).toBeVisible();
+      await expect(page.getByText("What happened?", { exact: true })).toHaveCount(0);
     }
   });
 
-  test("original links point at the source and never at the app", async ({ page }) => {
+  test("topic filter changes stay in the URL and browser Back restores the view", async ({ page }) => {
     await page.goto(`${TRENDS}/frontier-models`);
-    const external = page.locator('a[target="_blank"]').first();
-    await expect(external).toHaveAttribute("href", /^https?:\/\//);
+    await page.getByLabel("Sort results").click();
+    await page.getByRole("option", { name: /Sort: Newest/ }).click();
+    await expect(page).toHaveURL(/sort=newest/);
+    await page.goBack();
+    await expect(page).not.toHaveURL(/sort=newest/);
+  });
+
+  test("cards keep their original source link and their save action", async ({ page }) => {
+    await page.goto(`${TRENDS}/research`);
+    const card = page.locator("article").first();
+    await expect(card).toBeVisible();
+    const original = card.locator('a[href^="http"]').first();
+    await expect(original).toBeVisible();
+    await expect(original).toHaveAttribute("target", "_blank");
+    await expect(card.getByRole("button", { name: /^Save / })).toBeVisible();
+  });
+
+  test("empty filter results are honest and clearable", async ({ page }) => {
+    await page.goto(`${TRENDS}/research?q=zzzzzzzzzz`);
+    await expect(page.getByText("No results match these filters.")).toBeVisible();
+    await page.getByRole("button", { name: "Clear filters" }).click();
+    await expect(page.locator("article").first()).toBeVisible();
+  });
+
+  test("no horizontal overflow at desktop, tablet or mobile widths", async ({ page }) => {
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${TRENDS}/agents`);
+      await expect(page.locator("article").first()).toBeVisible();
+      expect(await noHorizontalOverflow(page)).toBe(true);
+    }
   });
 
   test("an unknown trend states that it is not catalogued", async ({ page }) => {

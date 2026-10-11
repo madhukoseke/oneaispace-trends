@@ -20,32 +20,50 @@ export function DiscoverySkeleton() {
   );
 }
 
-export function DiscoveryEmpty({ title = "Nothing matches these filters", hint, onReset }) {
+export function DiscoveryEmpty({ title = "No results match these filters.", hint, onReset, action }) {
   return (
     <div className="rounded-[11px] border border-dashed border-border/70 px-6 py-14 text-center">
       <SearchX className="mx-auto h-5 w-5 text-muted-foreground" aria-hidden="true" />
       <p className="mt-3 text-[15px] font-medium">{title}</p>
       {hint ? <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-relaxed text-muted-foreground">{hint}</p> : null}
-      {onReset ? (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onReset}
-          className="mt-5 h-9 rounded-[7px] border-border/70 text-[13.5px]"
-        >
-          Clear filters
-        </Button>
-      ) : null}
+      {action
+        ? action
+        : onReset
+          ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onReset}
+              className="mt-5 h-9 rounded-[7px] border-border/70 text-[13.5px]"
+            >
+              Clear filters
+            </Button>
+          )
+          : null}
     </div>
   );
 }
 
-export function DiscoveryError({ message }) {
+// Concise failure state: what happened and a way to try again, never the raw
+// error or anything internal.
+export function DiscoveryError({ onRetry }) {
   return (
     <div className="rounded-[11px] border border-border/70 bg-card px-6 py-12 text-center" role="alert">
       <AlertCircle className="mx-auto h-5 w-5 text-destructive" aria-hidden="true" />
       <p className="mt-3 text-[15px] font-medium">The catalogue could not be loaded</p>
-      <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-relaxed text-muted-foreground">{message}</p>
+      <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-relaxed text-muted-foreground">
+        Something went wrong while loading this content. Try again.
+      </p>
+      {onRetry ? (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onRetry}
+          className="mt-5 h-9 rounded-[7px] border-border/70 text-[13.5px]"
+        >
+          Retry
+        </Button>
+      ) : null}
     </div>
   );
 }

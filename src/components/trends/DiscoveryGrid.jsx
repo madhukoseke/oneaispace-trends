@@ -5,11 +5,20 @@ import { DiscoveryEmpty, DiscoveryError, DiscoverySkeleton } from "./DiscoverySt
 // Aligned grid, no masonry: three columns on a wide desktop, two at
 // intermediate widths, one on mobile. Cards keep their own height.
 export default function DiscoveryGrid({
-  items, loading, error, hasMore, onLoadMore, onReset, contextFor, emptyHint,
+  items, loading, error, hasMore, onLoadMore, onReset, onRetry, contextFor, emptyHint, emptyTitle, emptyAction,
 }) {
-  if (error) return <DiscoveryError message={error} />;
+  if (error) return <DiscoveryError onRetry={onRetry} />;
   if (loading && !items.length) return <DiscoverySkeleton />;
-  if (!items.length) return <DiscoveryEmpty hint={emptyHint} onReset={onReset} />;
+  if (!items.length) {
+    return (
+      <DiscoveryEmpty
+        title={emptyTitle}
+        hint={emptyHint}
+        onReset={emptyAction ? undefined : onReset}
+        action={emptyAction}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -28,7 +37,7 @@ export default function DiscoveryGrid({
             disabled={loading}
             className="h-9 rounded-[7px] border-border/70 px-4 text-[13.5px]"
           >
-            {loading ? "Loading..." : "Show more items"}
+            {loading ? "Loading..." : "Load more"}
           </Button>
         ) : (
           <p className="text-[12px] text-muted-foreground">End of results</p>

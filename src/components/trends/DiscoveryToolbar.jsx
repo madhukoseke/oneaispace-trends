@@ -8,12 +8,31 @@ import { cn } from "@/lib/utils";
 const TRIGGER = "h-8 w-auto min-w-0 gap-1.5 rounded-[7px] border-border/70 px-2.5 text-[13px] shadow-none";
 
 // One compact row: source, sort, the extra Filters surface, and the result count.
-export default function DiscoveryToolbar({ state, facets, total, onParam, onReset, tagQuery }) {
+export default function DiscoveryToolbar({ state, facets, total, onParam, onReset, tagQuery, subtopics }) {
   const sources = (facets.sources || []).map((row) => row.source).filter(Boolean);
+  // A topic's subtopics are offered here, and only when the scope really fills
+  // more than one of them, so this never becomes a second row of filters.
+  const subtopicOptions = (subtopics || []).filter((entry) => entry.count > 0);
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
+        {subtopicOptions.length > 1 ? (
+          <Select value={state.topic || "all"} onValueChange={(value) => onParam({ topic: value })}>
+            <SelectTrigger className={TRIGGER} aria-label="Filter by subtopic">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="max-h-[320px] rounded-[10px]">
+              <SelectItem value="all">Subtopic: All</SelectItem>
+              {subtopicOptions.map((entry) => (
+                <SelectItem key={entry.value} value={entry.value}>
+                  {entry.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+
         <Select value={state.source} onValueChange={(value) => onParam({ source: value })}>
           <SelectTrigger className={TRIGGER} aria-label="Filter by source">
             <SelectValue />

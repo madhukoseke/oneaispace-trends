@@ -18,6 +18,7 @@ export default function useDiscovery({ trendSlug = null } = {}) {
   const state = useMemo(() => readDiscovery(params), [params]);
   const [data, setData] = useState({ items: [], total: 0, loading: true, error: "" });
   const [facets, setFacets] = useState({ formats: [], sources: [] });
+  const [version, setVersion] = useState(0);
 
   const tagKey = state.tags.join(",");
   const scope = { trendSlug, topicSlug: state.topic };
@@ -44,7 +45,7 @@ export default function useDiscovery({ trendSlug = null } = {}) {
       }
     })();
     return () => { cancelled = true; };
-  }, [JSON.stringify(query), state.sort, state.page]);
+  }, [JSON.stringify(query), state.sort, state.page, version]);
 
   // Facets describe the scope being browsed (trend, topic, search), so only
   // formats and sources that actually exist there are ever offered.
@@ -86,11 +87,15 @@ export default function useDiscovery({ trendSlug = null } = {}) {
     update({ page: state.page + 1 }, { resetPage: false });
   }, [update, state.page]);
 
+  // Re-runs the current query without changing any filter.
+  const reload = useCallback(() => setVersion((value) => value + 1), []);
+
   return {
     state,
     update,
     reset,
     loadMore,
+    reload,
     tagQuery: facetQuery,
     facets,
     items: data.items,
