@@ -19,6 +19,7 @@ import {
   lookupNativeText, runEnrichment,
 } from '../../shared/sourceEnrichment.ts';
 import { runEnrichmentSuite } from '../../shared/sourceEnrichmentSuite.ts';
+import { productionExecutionAccess } from '../../shared/productionExecutionGate.ts';
 import { sanitizeMessage } from '../../shared/modelAdapters.ts';
 
 export default async function (req) {
@@ -64,6 +65,34 @@ export default async function (req) {
         ok: false, error_category: 'unknown_action', model_calls: 0, provider_calls: 0, writes: 0,
         error: 'unknown action; expected dry_run, enrich or suite',
       }, { status: 400 });
+    }
+
+    // The write path needs more than an administrator: a routine validation call must not be able
+    // to reach it. The gate is consulted only for a write, so dry runs and the mocked suite stay
+    // reachable with no authorization at all (shared/productionExecutionGate.ts).
+    if (execute) {
+      const execution = productionExecutionAccess({
+        authorization: payload.execution_authorization,
+        principal: user,
+        path: 'enrichSourceText',
+      });
+      if (!execution.ok) {
+        return Response.json({
+          ok: false,
+          action,
+          stage: 'phase3a-source-enrichment',
+          authorization_stage: 'production_execution',
+          error_category: execution.error_category,
+          error: execution.error,
+          dry_run: false,
+          operator: { ...access.operator, ...execution.operator },
+          production_execution_gate: execution.gate,
+          model_calls: 0,
+          provider_calls: 0,
+          writes: 0,
+          note: 'refused before any stored record was read and before any provider was contacted; action: "dry_run" plans the same writes without writing',
+        }, { status: execution.status });
+      }
     }
 
     const result = await runEnrichment({

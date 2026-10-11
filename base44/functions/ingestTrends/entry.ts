@@ -11,8 +11,13 @@
 // documents no verifiable scheduler identity for a scheduled invocation, so the six-hour
 // workflow is paused rather than left firing into a refusal, and ingestion now runs only when
 // an administrator invokes it. The design is stated once in shared/ingestionAuth.ts.
+//
+// Phase 3G: an administrator identity is necessary but no longer sufficient. A separate, per-run
+// production-execution authorization is also required, held in an empty-by-default source list
+// (shared/productionExecutionGate.ts). This closes the path by which a routine validation call -
+// which the platform's own test harness issues as a real administrator - executed an ingestion.
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.52';
-import { INGESTION_AUTH_DESIGN, INGESTION_LIMITATIONS, ingestionAccess } from '../../shared/ingestionAuth.ts';
+import { INGESTION_AUTH_DESIGN, INGESTION_LIMITATIONS, ingestTrendsAccess } from '../../shared/ingestionAuth.ts';
 import { PROVIDERS } from '../../shared/providers/index.ts';
 import { TREND_SEEDS, TOPIC_SEEDS, classify } from '../../shared/taxonomy.ts';
 import {
@@ -43,42 +48,48 @@ export default async function (req) {
   try {
     const base44 = createClientFromRequest(req);
 
-    // The one authorization input: the principal the platform resolved from the request. A
-    // missing user, a non-administrator and a caller claiming to be the scheduler all reach
-    // the same refusal here - before any record is created, any source is contacted or
-    // anything is written - so a refused request costs nothing and leaves no trace in the
-    // database beyond this function's own runtime log line.
+    // Two conditions, in order, and both are decided before any record is created, any source is
+    // contacted or anything is written: the principal the platform resolved from the request, then
+    // a separate, explicit production-execution authorization. The second exists because the
+    // platform's validation harness authenticates as a real administrator - without it, a routine
+    // test call is indistinguishable from an authorized production run, which is exactly how a
+    // read-only audit step once triggered a full ingestion. Both decisions live in
+    // shared/ingestionAuth.ts and shared/productionExecutionGate.ts.
     let user = null;
     try { user = await base44.auth.me(); } catch { user = null; }
-    const access = ingestionAccess(user);
+    let body = {};
+    try { body = await req.json(); } catch { body = {}; }
+    const access = ingestTrendsAccess({ principal: user, body });
     if (!access.ok) {
       console.log(JSON.stringify({
         ingestion_audit: 'refused_before_any_work',
+        authorization_stage: access.stage,
         error_category: access.error_category,
         status: access.status,
         scheduler_identity_documented: INGESTION_AUTH_DESIGN.scheduler_identity_documented,
         schedule_state: INGESTION_AUTH_DESIGN.schedule_state,
+        production_execution_authorized: access.authorization_accepted === true,
         at: new Date().toISOString(),
       }));
       return Response.json({
         ok: false,
+        authorization_stage: access.stage,
         error_category: access.error_category,
         error: access.error,
         authorization: {
           accepted_proofs: INGESTION_AUTH_DESIGN.accepted_proofs,
+          additionally_required: INGESTION_AUTH_DESIGN.additional_requirements,
           rejected_proofs: INGESTION_AUTH_DESIGN.rejected_proofs,
           scheduler_identity_documented: INGESTION_AUTH_DESIGN.scheduler_identity_documented,
           schedule_state: INGESTION_AUTH_DESIGN.schedule_state,
           fallback: INGESTION_AUTH_DESIGN.fallback,
         },
+        production_execution_gate: access.gate,
         model_calls: 0,
         provider_calls: 0,
         writes: 0,
       }, { status: access.status });
     }
-
-    let body = {};
-    try { body = await req.json(); } catch { body = {}; }
     // A caller-supplied trigger source is a label for the audit trail and nothing else: it
     // grants no access and selects no behaviour. The run is recorded as what it was - a
     // request an administrator made by hand - and the caller's own label is reported beside it.
@@ -272,6 +283,8 @@ export default async function (req) {
       status,
       authorization: {
         ...access.operator,
+        authorization_stage: access.stage,
+        production_execution_authorization_id: access.authorization_id || null,
         requested_trigger_source: requestedTriggerSource,
         trigger_source_recorded: triggerSource,
       },

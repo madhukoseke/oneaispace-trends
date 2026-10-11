@@ -19,6 +19,10 @@ import { INGESTION_AUTH_DESIGN, INGESTION_LIMITATIONS, ITEM_WRITE_PATHS } from '
 import { ISOLATION_LIMITATIONS } from '../../shared/testIsolation.ts';
 import { CLEANUP_CRITERIA, loadFixtureInventory } from '../../shared/fixtureInventory.ts';
 import { RECOVERY_GATE, RECOVERY_LIMITATIONS } from '../../shared/recoveryGate.ts';
+import {
+  PRODUCTION_BACKED_ACTIONS, PRODUCTION_EXECUTION_GATE, PRODUCTION_EXECUTION_LIMITATIONS,
+  ROUTINE_REGRESSION_ACTIONS,
+} from '../../shared/productionExecutionGate.ts';
 import { runPhase3fSuite } from '../../shared/phase3fSuite.ts';
 import { sanitizeMessage } from '../../shared/modelAdapters.ts';
 import { clip } from '../../shared/pipelineSupport.ts';
@@ -118,6 +122,10 @@ export default async function (req) {
       execution_enabled: false,
       ingestion_authorization: INGESTION_AUTH_DESIGN,
       ingestion_limitations: INGESTION_LIMITATIONS,
+      production_execution_gate: PRODUCTION_EXECUTION_GATE,
+      production_backed_actions: PRODUCTION_BACKED_ACTIONS,
+      routine_regression_actions: ROUTINE_REGRESSION_ACTIONS,
+      production_execution_limitations: PRODUCTION_EXECUTION_LIMITATIONS,
       item_write_paths: ITEM_WRITE_PATHS,
       test_isolation: ISOLATION_LIMITATIONS,
       fixture_cleanup: CLEANUP_CRITERIA,

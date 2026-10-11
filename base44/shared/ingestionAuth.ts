@@ -16,6 +16,14 @@
 // such proof exists, the fail-closed fallback recorded here is the one that was chosen:
 // manual, administrator-only ingestion, with the scheduled workflow paused rather than
 // left firing into a refusal.
+//
+// Phase 3G adds a second, separate condition on top of the identity decision, because the
+// platform's own validation harness authenticates as a real administrator: a production-backed
+// run also needs an explicit production-execution authorization, held in an empty-by-default
+// source list (shared/productionExecutionGate.ts). The two decisions are composed in
+// ingestTrendsAccess below, which is the exact decision the handler applies.
+
+import { productionExecutionAccess, productionExecutionGateDeclaration } from './productionExecutionGate.ts';
 
 export const INGESTION_AUTHORIZED_TRIGGER = 'authenticated_administrator';
 
@@ -24,6 +32,13 @@ export const INGESTION_AUTH_DESIGN = {
   // The only proof accepted. Deliberately a list of one.
   accepted_proofs: [
     'an authenticated administrator: base44.auth.me() returns a user whose role is admin',
+  ],
+  // Required as well, and separate from the identity above: an explicit, per-run
+  // production-execution authorization from a source-level list that is empty by default. The
+  // platform's validation harness is itself a real administrator, so an identity check alone
+  // cannot tell an authorized production run apart from a routine test call.
+  additional_requirements: [
+    'a production-execution authorization id, added to the empty-by-default list in shared/productionExecutionGate.ts for that one run',
   ],
   // Every one of these is worthless as proof and is never consulted.
   rejected_proofs: [
@@ -56,6 +71,8 @@ export const INGESTION_LIMITATIONS = {
     'A refused request creates no IngestionRun record, contacts no source and writes nothing: the refusal happens before any work.',
   manual_only:
     'Administrator-only manual ingestion is the entire remaining ingestion surface, and it is capped only by the app\'s own per-run batch sizes - not by a scheduler.',
+  production_execution_gate:
+    'Administrator identity alone does not run an ingestion: a separate, per-run production-execution authorization is required as well, and its list is empty by default, so only a deliberate source edit can arm one run. This is what stops a routine validation call - which the platform harness issues as a real administrator - from executing an ingestion.',
 };
 
 // The complete list of paths that can write an Item. It is reported, not enforced here;
@@ -123,5 +140,43 @@ export function ingestionAccess(user) {
     model_calls: 0,
     provider_calls: 0,
     writes: 0,
+  };
+}
+
+// The complete decision the ingestion handler applies, in order, exported so the regression suite
+// can exercise exactly this decision without invoking the handler:
+//   1. the principal the platform resolved (the identity decision above), then
+//   2. the separate production-execution authorization.
+// A request that fails either one is refused before any work: no IngestionRun, no source contact,
+// no write. A missing principal is refused 401 and a non-administrator 403 by the identity step;
+// an authenticated administrator with no armed authorization is refused 403 by the second step.
+export function ingestTrendsAccess({ principal, body } = {}) {
+  const identity = ingestionAccess(principal);
+  // The gate declaration is reported on every refusal, so a caller refused for identity reasons
+  // is told the same second condition that a caller refused for authorization reasons is.
+  if (!identity.ok) {
+    return { ...identity, stage: 'identity', authorization_accepted: false, gate: productionExecutionGateDeclaration() };
+  }
+
+  const execution = productionExecutionAccess({
+    authorization: body && body.execution_authorization,
+    principal,
+    path: 'ingestTrends',
+  });
+  if (!execution.ok) return { ...execution, stage: 'production_execution', identity };
+
+  return {
+    ok: true,
+    status: 200,
+    stage: 'authorized',
+    operator: {
+      ...identity.operator,
+      ...execution.operator,
+      production_execution_authorization: execution.authorization_id,
+    },
+    authorization_id: execution.authorization_id,
+    authorization_accepted: true,
+    identity,
+    execution,
   };
 }

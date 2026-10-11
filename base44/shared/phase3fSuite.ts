@@ -15,7 +15,13 @@
 import { DEV_ANALYSIS_CONFIG } from './devAnalysisConfig.ts';
 import { resolveFeed } from './devFeed.ts';
 import { createCaseRecorder } from './pipelineSupport.ts';
-import { INGESTION_AUTH_DESIGN, INGESTION_LIMITATIONS, ITEM_WRITE_PATHS, ingestionAccess } from './ingestionAuth.ts';
+import {
+  INGESTION_AUTH_DESIGN, INGESTION_LIMITATIONS, ITEM_WRITE_PATHS, ingestTrendsAccess, ingestionAccess,
+} from './ingestionAuth.ts';
+import {
+  PRODUCTION_BACKED_ACTIONS, PRODUCTION_EXECUTION_GATE, PRODUCTION_EXECUTION_LIMITATIONS,
+  ROUTINE_REGRESSION_ACTIONS, productionExecutionAccess, productionExecutionAuthorized,
+} from './productionExecutionGate.ts';
 import { RECOVERY_GATE, RECOVERY_LIMITATIONS } from './recoveryGate.ts';
 import {
   ANALYSIS_SUITE_COLLECTIONS, ISOLATED_DB_MARKER, ISOLATION_LIMITATIONS, IsolationViolationError,
@@ -444,6 +450,141 @@ export async function runPhase3fSuite({ runId = `phase3f-suite_${Date.now()}` } 
     return {
       ok: missing.length === 0 && recoveryMissing.length === 0,
       note: { ingestion_missing: missing, recovery_missing: recoveryMissing, declared: required.length + 4 },
+    };
+  });
+
+  // --- 7. the production-execution gate (Phase 3G) -----------------------------------------
+  // The incident: a routine validation call reached the deployed ingestion handler, which the
+  // platform harness had authenticated as a real administrator, and a full ingestion ran. The
+  // isolation cases above could not have caught it, because the tripwire protects a *suite* and
+  // this was a direct handler invocation. These cases assert the control that closes that path.
+  await record('execution_gate.authorization_list_is_empty_by_default', async () => {
+    const routineKeys = new Set(ROUTINE_REGRESSION_ACTIONS.map((entry) => `${entry.path}.${entry.action}`));
+    const overlapping = PRODUCTION_BACKED_ACTIONS.filter((entry) => routineKeys.has(`${entry.path}.${entry.action}`));
+    const routineForIngestion = ROUTINE_REGRESSION_ACTIONS.filter((entry) => entry.path === 'ingestTrends');
+    return {
+      ok: PRODUCTION_EXECUTION_GATE.authorized_runs.length === 0
+        && PRODUCTION_EXECUTION_GATE.require_explicit_authorization === true
+        && PRODUCTION_EXECUTION_GATE.routine_commands_carry_no_authorization === true
+        && overlapping.length === 0
+        && routineForIngestion.length === 0
+        && PRODUCTION_BACKED_ACTIONS.some((entry) => entry.path === 'ingestTrends')
+        && PRODUCTION_BACKED_ACTIONS.some((entry) => entry.path === 'enrichSourceText' && entry.action === 'enrich')
+        && PRODUCTION_BACKED_ACTIONS.every((entry) => /authorization/.test(entry.requires)),
+      note: {
+        authorized_runs: PRODUCTION_EXECUTION_GATE.authorized_runs,
+        production_backed: PRODUCTION_BACKED_ACTIONS.map((entry) => `${entry.path}.${entry.action}`),
+        routine_actions: ROUTINE_REGRESSION_ACTIONS.length,
+        overlapping: overlapping.map((entry) => `${entry.path}.${entry.action}`),
+        routine_actions_for_ingestTrends: routineForIngestion.length,
+      },
+    };
+  });
+
+  await record('execution_gate.routine_invocations_are_refused', async () => {
+    const principal = { id: 'u_admin', role: 'admin' };
+    // The exact shapes a routine regression command, a test harness or a stale script carries.
+    const routineValues = [undefined, null, '', '   ', 'test', 'regression', 'phase3f-security-suite-3', 'devAnalysis', 'suite'];
+    const refusals = routineValues.map((value) => productionExecutionAccess({ authorization: value, principal, path: 'ingestTrends' }));
+    return {
+      ok: refusals.every((entry) => entry.ok === false && entry.status === 403
+        && entry.error_category === 'production_execution_not_authorized'
+        && entry.authorization_accepted === false && entry.gate.authorized_runs.length === 0),
+      note: {
+        routine_values_tried: routineValues.length,
+        statuses: Array.from(new Set(refusals.map((entry) => entry.status))),
+        categories: Array.from(new Set(refusals.map((entry) => entry.error_category))),
+        supplied: Array.from(new Set(refusals.map((entry) => entry.authorization_supplied))),
+      },
+    };
+  });
+
+  await record('execution_gate.identity_is_checked_first', async () => {
+    const anonymous = productionExecutionAccess({ authorization: 'any-run-id', principal: null, path: 'ingestTrends' });
+    const nonAdmin = productionExecutionAccess({ authorization: 'any-run-id', principal: { id: 'u_reader', role: 'user' }, path: 'ingestTrends' });
+    const noId = productionExecutionAccess({ authorization: 'any-run-id', principal: { role: 'admin' }, path: 'ingestTrends' });
+    const category = 'production_execution_requires_an_authenticated_administrator';
+    return {
+      ok: anonymous.ok === false && anonymous.status === 401 && anonymous.error_category === category
+        && nonAdmin.ok === false && nonAdmin.status === 403 && nonAdmin.error_category === category
+        && noId.ok === false && noId.status === 401
+        && anonymous.authorization_accepted === false
+        && anonymous.gate.authorized_runs.length === 0
+        && nonAdmin.gate.stage === PRODUCTION_EXECUTION_GATE.stage
+        && noId.gate.stage === PRODUCTION_EXECUTION_GATE.stage,
+      note: { anonymous: anonymous.status, non_administrator: nonAdmin.status, administrator_without_an_id: noId.status },
+    };
+  });
+
+  await record('execution_gate.an_armed_run_is_admitted_and_only_for_that_id', async () => {
+    // The mechanism is proven on a supplied list, so the real constant stays empty.
+    const armedList = ['phase3g-recovery-run-1'];
+    return {
+      ok: productionExecutionAuthorized('phase3g-recovery-run-1', armedList) === true
+        && productionExecutionAuthorized('phase3g-recovery-run-2', armedList) === false
+        && productionExecutionAuthorized('phase3g-recovery-run-1', []) === false
+        && productionExecutionAuthorized('   ', armedList) === false
+        && productionExecutionAuthorized(null, armedList) === false
+        && productionExecutionAuthorized({ id: 'phase3g-recovery-run-1' }, armedList) === false
+        && productionExecutionAuthorized(' phase3g-recovery-run-1 ', armedList) === true,
+      note: {
+        listed_id: productionExecutionAuthorized('phase3g-recovery-run-1', armedList),
+        other_id: productionExecutionAuthorized('phase3g-recovery-run-2', armedList),
+        empty_list: productionExecutionAuthorized('phase3g-recovery-run-1', []),
+        blank: productionExecutionAuthorized('   ', armedList),
+        non_string: productionExecutionAuthorized({ id: 'x' }, armedList),
+      },
+    };
+  });
+
+  await record('execution_gate.the_ingestion_handler_refuses_a_routine_call', async () => {
+    const admin = { id: 'u_admin', role: 'admin' };
+    // The exact call that caused the incident: an empty body, issued as an authenticated
+    // administrator by the platform's own validation harness.
+    const incident = ingestTrendsAccess({ principal: admin, body: {} });
+    const labelled = ingestTrendsAccess({ principal: admin, body: { trigger_source: 'schedule', execute: true } });
+    const anonymous = ingestTrendsAccess({ principal: null, body: {} });
+    const reader = ingestTrendsAccess({ principal: { id: 'u_reader', role: 'user' }, body: {} });
+    const armedElsewhere = ingestTrendsAccess({ principal: admin, body: { execution_authorization: 'phase3g-recovery-run-1' } });
+    return {
+      ok: incident.ok === false && incident.status === 403 && incident.stage === 'production_execution'
+        && incident.error_category === 'production_execution_not_authorized'
+        && labelled.ok === false && labelled.stage === 'production_execution'
+        && anonymous.ok === false && anonymous.status === 401 && anonymous.stage === 'identity'
+        && reader.ok === false && reader.status === 403 && reader.stage === 'identity'
+        && armedElsewhere.ok === false && armedElsewhere.stage === 'production_execution'
+        && incident.gate.authorized_runs.length === 0,
+      note: {
+        incident_call: { stage: incident.stage, status: incident.status, category: incident.error_category },
+        labelled_call: { stage: labelled.stage, status: labelled.status },
+        unauthenticated: { stage: anonymous.stage, status: anonymous.status },
+        non_administrator: { stage: reader.stage, status: reader.status },
+        id_not_on_the_list: { stage: armedElsewhere.stage, status: armedElsewhere.status },
+      },
+    };
+  });
+
+  await record('execution_gate.diagnostics_stay_reachable_without_an_authorization', async () => {
+    const routineKeys = new Set(ROUTINE_REGRESSION_ACTIONS.map((entry) => `${entry.path}.${entry.action}`));
+    const diagnosticActions = [
+      'securityAudit.status', 'securityAudit.suite', 'securityAudit.fixture_inventory',
+      'devAnalysis.suite', 'devAnalysis.calibration_suite', 'devAnalysis.source_quality',
+      'devAnalysis.review', 'modelProof.contract', 'modelProof.review',
+      'enrichSourceText.suite', 'enrichSourceText.dry_run', 'devFeed.read',
+    ];
+    const unlisted = diagnosticActions.filter((key) => !routineKeys.has(key));
+    return {
+      ok: unlisted.length === 0
+        && PRODUCTION_EXECUTION_GATE.covered_paths.length === 2
+        && PRODUCTION_EXECUTION_GATE.covered_paths.includes('ingestTrends')
+        && PRODUCTION_EXECUTION_GATE.covered_paths.includes('enrichSourceText')
+        && PRODUCTION_EXECUTION_GATE.covered_by_an_existing_source_constant.length === 2
+        && PRODUCTION_EXECUTION_LIMITATIONS.suites_unaffected.length > 40
+        && PRODUCTION_EXECUTION_LIMITATIONS.not_a_substitute_for_isolation.length > 40,
+      note: {
+        diagnostic_actions_declared: diagnosticActions.length, unlisted,
+        covered_paths: PRODUCTION_EXECUTION_GATE.covered_paths,
+      },
     };
   });
 
