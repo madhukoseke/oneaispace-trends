@@ -8,19 +8,23 @@ import DiscoveryGrid from "@/components/trends/DiscoveryGrid";
 import SectionHeading from "@/components/trends/SectionHeading";
 import FeaturedBriefs from "@/components/trends/FeaturedBriefs";
 import TrendingToday from "@/components/trends/TrendingToday";
+import LatestDevelopments from "@/components/trends/LatestDevelopments";
 import useDiscovery from "@/hooks/useDiscovery";
 import useTrends from "@/hooks/useTrends";
 import useIngestStatus from "@/hooks/useIngestStatus";
 import useHomeSections from "@/hooks/useHomeSections";
+import useLatestDevelopments from "@/hooks/useLatestDevelopments";
 
-// Discovery surface in four parts: heading and search, official and research
-// briefs, the developments grouped from recent records, then the whole catalogue
-// with its own content-type navigation.
+// Discovery surface in five parts: heading and search, official and research
+// briefs, the developments grouped from recent records, the latest accepted
+// developments from the public feed, then the whole catalogue with its own
+// content-type navigation.
 export default function Trends() {
   const { state, update, reset, loadMore, facets, items, total, loading, error, hasMore, tagQuery } = useDiscovery({});
   const trends = useTrends();
   const run = useIngestStatus();
   const { briefs, trending, loading: sectionsLoading } = useHomeSections();
+  const developments = useLatestDevelopments();
 
   const browsable = useMemo(() => trends.filter((trend) => trend.item_count > 0), [trends]);
   const trendNames = useMemo(
@@ -61,6 +65,8 @@ export default function Trends() {
         loading={sectionsLoading}
         trendNames={trendNames}
       />
+
+      <LatestDevelopments items={developments.items} loading={developments.loading} />
 
       <section className="mt-5 border-t border-border/70 pt-4" aria-labelledby="all-content">
         <SectionHeading id="all-content" title="All Content" />
