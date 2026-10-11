@@ -3,6 +3,7 @@ import { ChevronRight, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import DevelopmentEvidence from "@/components/trends/DevelopmentEvidence";
+import AnalysisMethod from "@/components/trends/AnalysisMethod";
 import useDevelopment from "@/hooks/useDevelopment";
 import { calendarDate } from "@/lib/trends";
 
@@ -117,6 +118,10 @@ export default function DevelopmentDetail() {
 
           <div className="mt-5">
             <DevelopmentEvidence item={item} />
+          </div>
+
+          <div className="mt-4">
+            <AnalysisMethod support={item.support} />
           </div>
 
           {item.source && item.source.url ? (

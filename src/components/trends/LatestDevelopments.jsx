@@ -1,6 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import SectionHeading from "./SectionHeading";
 import DevelopmentCard from "./DevelopmentCard";
+import HowItWorksDialog from "./HowItWorksDialog";
 
 function CardsSkeleton() {
   return (
@@ -36,6 +37,7 @@ export default function LatestDevelopments({ items, loading, error, onRetry, hid
         id="latest-developments"
         title="Latest Developments"
         note="Source-supported updates from across AI."
+        action={<HowItWorksDialog />}
       />
 
       {loading ? (
