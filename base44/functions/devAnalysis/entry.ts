@@ -239,15 +239,35 @@ function fixtureItems() {
   return [
     {
       id: 'itm_gpt6_a', source: 'Example News', source_key: 'example',
-      title: 'GPT-6 Luna launches with a 2M-token context window',
+      title: 'GPT-6 Luna benchmark results published',
       excerpt: 'OpenAI said GPT-6 Luna is available today with a 2M-token context window and native tool use.',
       canonical_url: 'https://example.com/gpt6-luna', published_at: '2026-10-10T12:00:00.000Z',
     },
     {
       id: 'itm_gpt6_b', source: 'Other Example', source_key: 'other',
-      title: 'GPT-6 Luna benchmark results published',
-      excerpt: 'Independent benchmarks for GPT-6 Luna show a 2M-token context window and native tool use.',
+      title: 'Independent GPT-6 Luna benchmark results released',
+      excerpt: 'Independent benchmarks for GPT-6 Luna report a 2M-token context window and native tool use.',
       canonical_url: 'https://other.example.org/gpt6-luna-benchmarks', published_at: '2026-10-10T15:00:00.000Z',
+    },
+    // One identifier, three different variants: these three must never be joined into one
+    // development, however much wording they share.
+    {
+      id: 'itm_gemini_flash', source: 'Example News', source_key: 'example',
+      title: 'Introducing Gemini 3.8 Flash',
+      excerpt: 'A low-latency variant for high-volume inference, available today.',
+      canonical_url: 'https://example.com/gemini-38-flash', published_at: '2026-10-07T12:00:00.000Z',
+    },
+    {
+      id: 'itm_gemini_live', source: 'Another Outlet', source_key: 'another',
+      title: 'Introducing Gemini 3.8 Live',
+      excerpt: 'A real-time multimodal variant for interactive sessions, available today.',
+      canonical_url: 'https://example.net/gemini-38-live', published_at: '2026-10-06T09:00:00.000Z',
+    },
+    {
+      id: 'itm_gemini_live_avatar', source: 'Another Outlet', source_key: 'another',
+      title: 'Introducing Gemini 3.8 Live with Live Avatar',
+      excerpt: 'A variant that adds an animated avatar to interactive sessions.',
+      canonical_url: 'https://example.net/gemini-38-live-avatar', published_at: '2026-10-05T09:00:00.000Z',
     },
     {
       id: 'itm_agent_x', source: 'Example News', source_key: 'example',
@@ -369,12 +389,37 @@ async function runSuite({ db, base44, runId }) {
     };
   });
 
-  await record('grouping.same_development_multiple_sources_grouped', async () => {
+  await record('grouping.same_model_and_variant_multiple_sources_grouped', async () => {
     const group = grouping.candidates.find((candidate) => candidate.item_ids.includes('itm_gpt6_a'));
     return {
       ok: Boolean(group) && group.item_ids.includes('itm_gpt6_b') && group.supporting_sources === 2
-        && group.basis === 'shared_named_model_or_version' && group.shared_tokens.includes('gpt-6'),
-      note: { basis: group && group.basis, tokens: group && group.shared_tokens, item_ids: group && group.item_ids },
+        && group.basis === 'same_model_and_variant' && group.shared_anchors.includes('gpt-6|luna-results'),
+      note: {
+        basis: group && group.basis, anchors: group && group.shared_anchors,
+        tokens: group && group.shared_tokens, item_ids: group && group.item_ids,
+      },
+    };
+  });
+
+  // The correction this rule exists for: one identifier, several variants. A shared version
+  // number is not evidence of one release, so each of these three stays its own candidate and
+  // every pair is reported as a refusal with the variant each side named.
+  await record('grouping.same_identifier_different_variant_not_merged', async () => {
+    const ids = ['itm_gemini_flash', 'itm_gemini_live', 'itm_gemini_live_avatar'];
+    const groups = ids.map((id) => grouping.candidates.find((candidate) => candidate.item_ids.includes(id)));
+    const refused = grouping.refused_merges.filter((entry) => entry.item_ids.every((id) => ids.includes(id)));
+    const distinct = new Set(groups.map((group) => group && group.group_key)).size === ids.length;
+    return {
+      ok: groups.every(Boolean) && distinct && refused.length === 3
+        && refused.every((entry) => (entry.shared_version_tokens || []).includes('gemini-3.8'))
+        && refused.some((entry) => entry.item_ids.includes('itm_gemini_live') && entry.item_ids.includes('itm_gemini_live_avatar')),
+      note: {
+        group_keys: groups.map((group) => group && group.group_key),
+        refusals: refused.map((entry) => ({
+          item_ids: entry.item_ids, shared_version_tokens: entry.shared_version_tokens,
+          variants: [entry.variants_left, entry.variants_right],
+        })),
+      },
     };
   });
 

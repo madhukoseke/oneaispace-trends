@@ -4,13 +4,16 @@
 // the same inputs always produce the same candidates, and the report can always state
 // why two records were linked together - or deliberately left apart.
 //
-// Three sources of linkage, in this order:
+// Two sources of linkage, in this order:
 //   1. the same canonical url  -> the same source record ingested twice, deduplicated
-//   2. a shared named model or version identifier ("gpt-6", "qwen-3.5") -> candidates
-//      for one development
-//   3. an identical normalised title -> candidates for one development
-// Records that share only generic vocabulary are reported as a refused merge and are
-// NOT joined, so "everything mentioning AI agents" cannot collapse into one candidate.
+//   2. an identical normalised title -> the same announcement reported by two sources
+//   3. the same named model identifier AND the same variant phrase written after it
+//      ("gemini-3.8|flash", "gpt-6|astra-ultrafast") -> candidates for one release
+// A shared family or version number on its own is NOT linkage: one family ships several
+// separate announcements (Gemini 3.8 Flash and Gemini 3.8 Live are different releases,
+// and GPT-6 is not "GPT-6 Astra Ultrafast"), so those pairs are reported as a refused
+// merge instead of being joined. Records that share only generic vocabulary are refused
+// the same way, so "everything mentioning AI agents" cannot collapse into one candidate.
 //
 // A record fingerprint covers the stored text that analysis actually consumes. It is
 // how the pipeline knows a record's analysis is still current, so an unchanged record
@@ -65,6 +68,9 @@ function normalizeTokenText(text) {
     .toLowerCase()
     .replace(/[\u2018\u2019\u201c\u201d]/g, "'")
     .replace(/[\u2013\u2014]/g, '-')
+    // Possessives are dropped before punctuation is stripped, so "OpenAI's" and "OpenAI"
+    // are one word instead of two.
+    .replace(/'s(?=\s|$)/g, '')
     .replace(/[^a-z0-9.\- ]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -95,6 +101,90 @@ export function versionedTokens(text) {
 export function familyTokens(text) {
   const normalized = normalizeTokenText(text);
   return NAMED_AI_FAMILIES.filter((family) => new RegExp(`(^| )${escapePattern(family)}(?=$| )`).test(normalized)).sort();
+}
+
+// Words that carry no identifying power inside a variant phrase: connectors and other
+// function words, the companies that publish models, the family names themselves, and
+// everything already listed as generic grouping vocabulary.
+const CONNECTOR_WORDS = new Set([
+  'and', 'with', 'for', 'the', 'that', 'this', 'these', 'those', 'than', 'then', 'but',
+  'from', 'into', 'onto', 'over', 'under', 'about', 'after', 'before', 'while', 'when',
+  'plus', 'also', 'now', 'today', 'here', 'there', 'its', 'their', 'your', 'our',
+  'just', 'only', 'more', 'most', 'very', 'best', 'better', 'first', 'latest', 'next',
+  'last', 'newer', 'says', 'said', 'uses', 'use', 'based', 'two', 'three', 'one',
+  'again', 'still', 'even', 'well', 'way',
+]);
+
+const COMPANY_WORDS = new Set([
+  'openai', 'anthropic', 'google', 'deepmind', 'microsoft', 'meta', 'facebook', 'amazon',
+  'apple', 'nvidia', 'intel', 'amd', 'qualcomm', 'samsung', 'tesla', 'xai', 'alibaba',
+  'baidu', 'tencent', 'bytedance', 'huggingface', 'cohere', 'oracle', 'salesforce',
+  'adobe', 'ibm', 'databricks', 'snowflake', 'groq', 'cerebras', 'moonshot', 'labs',
+  'inc', 'corp',
+]);
+
+// How many words after the identifier are inspected, and how many of them may make up the
+// variant phrase. Two words are enough to keep "Gemini 3.8 Live" apart from
+// "Gemini 3.8 Live with Live Avatar", which are two separate announcements.
+const VARIANT_WINDOW_WORDS = 4;
+const MAX_VARIANT_WORDS = 2;
+
+function isDistinctiveWord(word) {
+  if (!/^[a-z][a-z-]{2,}$/.test(word)) return false;
+  if (CONNECTOR_WORDS.has(word) || COMPANY_WORDS.has(word)) return false;
+  if (GENERIC_GROUPING_TOKENS.has(word) || NAMED_AI_FAMILIES.includes(word)) return false;
+  return true;
+}
+
+// Every named model identifier in the stored text, with the variant phrase written after
+// it: the "flash" in "Gemini 3.8 Flash", the "astra ultrafast" in "GPT-6 Astra Ultrafast".
+// The window is the few words directly after the identifier, so a variant phrase is what
+// the record itself says about which product or edition it is about.
+function identifierMatches(text) {
+  const normalized = normalizeTokenText(text);
+  const matches = [];
+  for (const family of NAMED_AI_FAMILIES) {
+    const pattern = new RegExp(`(^| )${escapePattern(family)}[ -]?(\\d+(?:\\.\\d+)*)(?=$| )`, 'g');
+    let match = pattern.exec(normalized);
+    while (match) {
+      const window = normalized.slice(match.index + match[0].length).trim().split(' ').filter(Boolean).slice(0, VARIANT_WINDOW_WORDS);
+      const variant = [];
+      for (const word of window) {
+        if (!isDistinctiveWord(word) || variant.includes(word)) continue;
+        variant.push(word);
+        if (variant.length >= MAX_VARIANT_WORDS) break;
+      }
+      matches.push({ version_token: `${family}-${match[2]}`, variant });
+      match = pattern.exec(normalized);
+    }
+  }
+  return matches;
+}
+
+// The anchor a record offers for linking: one named model identifier together with the
+// variant phrase it was named with. Two records describe one release only when they offer
+// the SAME anchor.
+export function variantAnchors(text) {
+  const anchors = new Set();
+  for (const match of identifierMatches(text)) {
+    if (!match.variant.length) continue;
+    anchors.add(`${match.version_token}|${match.variant.join('-')}`);
+  }
+  return Array.from(anchors).sort();
+}
+
+// Named identifiers with the variant words each carried, for the report: a reader can see
+// which variant each side of a refused link named.
+export function namedIdentifiers(text) {
+  const found = new Map();
+  for (const match of identifierMatches(text)) {
+    const variant = found.get(match.version_token) || new Set();
+    for (const word of match.variant) variant.add(word);
+    found.set(match.version_token, variant);
+  }
+  return Array.from(found.entries())
+    .map(([version_token, variant]) => ({ version_token, variant: Array.from(variant).sort() }))
+    .sort((left, right) => left.version_token.localeCompare(right.version_token));
 }
 
 // Tokens that carry both a name and a version-like number, excluding bare years and
@@ -181,8 +271,9 @@ function dedupeByCanonicalUrl(items) {
   return { kept, duplicates };
 }
 
-// Union-find over the surviving records: two records are linked only by a shared
-// specific token, or by an identical normalised title.
+// Union-find over the surviving records: two records are linked only by a shared variant
+// anchor (the same named model identifier AND the same variant phrase), or by an identical
+// normalised title. A shared version number alone never links them.
 function cluster(items) {
   const parent = new Map(items.map((item) => [item.id, item.id]));
   const find = (id) => {
@@ -196,15 +287,15 @@ function cluster(items) {
     if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
   };
 
-  const byToken = new Map();
+  const byAnchor = new Map();
   const byTitle = new Map();
   const links = [];
 
   for (const item of items) {
     const text = sourceRecordText(item);
-    for (const token of specificTokens(text)) {
-      if (!byToken.has(token)) byToken.set(token, []);
-      byToken.get(token).push(item.id);
+    for (const anchor of variantAnchors(text)) {
+      if (!byAnchor.has(anchor)) byAnchor.set(anchor, []);
+      byAnchor.get(anchor).push(item.id);
     }
     const key = titleKey(item.title);
     if (key) {
@@ -213,10 +304,10 @@ function cluster(items) {
     }
   }
 
-  for (const [token, ids] of byToken.entries()) {
+  for (const [anchor, ids] of byAnchor.entries()) {
     for (let index = 1; index < ids.length; index += 1) {
       union(ids[0], ids[index]);
-      links.push({ basis: 'shared_named_model_or_version', token, item_ids: ids });
+      links.push({ basis: 'same_model_and_variant', anchor, item_ids: ids });
     }
   }
   for (const [key, ids] of byTitle.entries()) {
@@ -250,14 +341,16 @@ export function groupCandidates(items) {
   const candidates = groups.map((group) => {
     const itemIds = group.map((item) => item.id).sort();
     const tokens = sharedValues(group.map((item) => specificTokens(sourceRecordText(item))));
+    const anchors = sharedValues(group.map((item) => variantAnchors(sourceRecordText(item))));
     const titles = sharedValues([group.map((item) => titleKey(item.title))]);
     let basis = 'single_source';
-    if (itemIds.length > 1) basis = tokens.length ? 'shared_named_model_or_version' : 'same_normalized_title';
+    if (itemIds.length > 1) basis = titles.length ? 'same_normalized_title' : 'same_model_and_variant';
     return {
       group_key: hashString(`${basis}|${itemIds.join(',')}`),
       basis,
       item_ids: itemIds,
       supporting_sources: itemIds.length,
+      shared_anchors: anchors,
       shared_tokens: tokens,
       shared_title_key: titles[0] || '',
       all_records_thin: group.every(isThin),
@@ -266,25 +359,62 @@ export function groupCandidates(items) {
     };
   }).sort((left, right) => left.group_key.localeCompare(right.group_key));
 
-  // Records that share only generic vocabulary: reported, never merged.
-  const refusedMerges = [];
+  // Two kinds of refusal are reported, and neither pair is merged: records that name the
+  // same model identifier but not the same variant, and records that share only generic
+  // vocabulary. The first is the more important one - it is what keeps separate
+  // announcements of one family apart.
+  const itemsByCandidate = candidates.map((candidate) => kept.filter((item) => candidate.item_ids.includes(item.id)));
+  const anchorsByCandidate = itemsByCandidate.map((records) => Array.from(new Set(records.flatMap((item) => variantAnchors(sourceRecordText(item))))));
+  const identifiersByCandidate = itemsByCandidate.map((records) => {
+    const merged = new Map();
+    for (const record of records) {
+      for (const entry of namedIdentifiers(sourceRecordText(record))) {
+        const variant = merged.get(entry.version_token) || new Set();
+        for (const word of entry.variant) variant.add(word);
+        merged.set(entry.version_token, variant);
+      }
+    }
+    return merged;
+  });
+
+  const variantRefusals = [];
+  const genericRefusals = [];
   for (let left = 0; left < candidates.length; left += 1) {
     for (let right = left + 1; right < candidates.length; right += 1) {
-      const leftItems = kept.filter((item) => candidates[left].item_ids.includes(item.id));
-      const rightItems = kept.filter((item) => candidates[right].item_ids.includes(item.id));
-      const leftGeneric = new Set(leftItems.flatMap((item) => genericTokens(sourceRecordText(item))));
-      const rightGeneric = new Set(rightItems.flatMap((item) => genericTokens(sourceRecordText(item))));
+      const itemIds = candidates[left].item_ids.concat(candidates[right].item_ids).sort();
+      const sharedAnchors = anchorsByCandidate[left].filter((anchor) => anchorsByCandidate[right].includes(anchor));
+      const sharedVersions = Array.from(identifiersByCandidate[left].keys())
+        .filter((version) => identifiersByCandidate[right].has(version)).sort();
+
+      if (sharedVersions.length && !sharedAnchors.length) {
+        const side = (identifiers) => sharedVersions.map((version) => ({
+          version_token: version, variant: Array.from(identifiers.get(version)).sort(),
+        }));
+        variantRefusals.push({
+          group_keys: [candidates[left].group_key, candidates[right].group_key],
+          item_ids: itemIds,
+          shared_version_tokens: sharedVersions,
+          variants_left: side(identifiersByCandidate[left]),
+          variants_right: side(identifiersByCandidate[right]),
+          reason: 'the same model identifier is named on both sides but not the same variant phrase, so the stored text does not establish that these records describe one release; they were left as separate candidates',
+        });
+        continue;
+      }
+
+      const leftGeneric = new Set(itemsByCandidate[left].flatMap((item) => genericTokens(sourceRecordText(item))));
+      const rightGeneric = new Set(itemsByCandidate[right].flatMap((item) => genericTokens(sourceRecordText(item))));
       const shared = Array.from(leftGeneric).filter((token) => rightGeneric.has(token)).sort();
       if (shared.length) {
-        refusedMerges.push({
+        genericRefusals.push({
           group_keys: [candidates[left].group_key, candidates[right].group_key],
-          item_ids: candidates[left].item_ids.concat(candidates[right].item_ids).sort(),
+          item_ids: itemIds,
           shared_generic_tokens: shared,
           reason: 'these records share only generic vocabulary, which does not identify a development, so they were left as separate candidates',
         });
       }
     }
   }
+  const refusedMerges = [...variantRefusals, ...genericRefusals];
 
   return {
     candidates,
@@ -293,7 +423,7 @@ export function groupCandidates(items) {
     links,
     item_count: items.length,
     records_analysed: kept.length,
-    method: 'deterministic: canonical url dedupe, then a shared named model or version identifier, then an identical normalised title; generic vocabulary never links two records',
+    method: 'deterministic: canonical url dedupe, then the same named model identifier together with the same variant phrase written after it, then an identical normalised title; a shared family or version number alone never links two records, and generic vocabulary never links two records',
   };
 }
 
