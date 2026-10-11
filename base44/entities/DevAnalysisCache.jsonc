@@ -1,0 +1,77 @@
+{
+  "name": "DevAnalysisCache",
+  "type": "object",
+  "properties": {
+    "fingerprint": {
+      "type": "string"
+    },
+    "item_fingerprints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "source_item_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "stage": {
+      "type": "string"
+    },
+    "development_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "development_count": {
+      "type": "number",
+      "default": 0
+    },
+    "claims_accepted": {
+      "type": "number",
+      "default": 0
+    },
+    "model_calls": {
+      "type": "number",
+      "default": 0
+    },
+    "cost_estimate_usd": {
+      "type": "number"
+    },
+    "cached_at": {
+      "type": "string"
+    },
+    "retention_days": {
+      "type": "number",
+      "default": 30
+    }
+  },
+  "required": [
+    "fingerprint",
+    "run_id"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": false
+  }
+}

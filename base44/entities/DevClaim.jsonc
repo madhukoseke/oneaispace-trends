@@ -1,0 +1,130 @@
+{
+  "name": "DevClaim",
+  "type": "object",
+  "properties": {
+    "claim_id": {
+      "type": "string"
+    },
+    "development_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "stage": {
+      "type": "string"
+    },
+    "item_id": {
+      "type": "string"
+    },
+    "item_title": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "canonical_url": {
+      "type": "string"
+    },
+    "published_at": {
+      "type": "string"
+    },
+    "claim_text": {
+      "type": "string"
+    },
+    "evidence_quote": {
+      "type": "string"
+    },
+    "quote_in_record": {
+      "type": "boolean",
+      "default": false
+    },
+    "quote_segments": {
+      "type": "number",
+      "default": 0
+    },
+    "quote_match_reason": {
+      "type": "string"
+    },
+    "source_states_claim": {
+      "type": "boolean",
+      "default": false
+    },
+    "evidence_supports_claim": {
+      "type": "boolean",
+      "default": false
+    },
+    "model_state": {
+      "type": "string",
+      "enum": [
+        "supported",
+        "mixed",
+        "insufficient_evidence",
+        "contradicted",
+        "not_evaluated"
+      ]
+    },
+    "model_confidence": {
+      "type": "number"
+    },
+    "model_probabilities": {
+      "type": "object"
+    },
+    "assessment_state": {
+      "type": "string"
+    },
+    "evidence_state": {
+      "type": "string"
+    },
+    "downgraded": {
+      "type": "boolean",
+      "default": false
+    },
+    "citation": {
+      "type": "object"
+    },
+    "citation_accepted": {
+      "type": "boolean",
+      "default": false
+    },
+    "citation_rejection_reason": {
+      "type": "string"
+    },
+    "independent_verification": {
+      "type": "string"
+    },
+    "rejection_reason": {
+      "type": "string"
+    },
+    "recorded_at": {
+      "type": "string"
+    },
+    "retention_days": {
+      "type": "number",
+      "default": 30
+    }
+  },
+  "required": [
+    "claim_id",
+    "run_id",
+    "item_id"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": false
+  }
+}

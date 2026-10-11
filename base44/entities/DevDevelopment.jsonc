@@ -1,0 +1,161 @@
+{
+  "name": "DevDevelopment",
+  "type": "object",
+  "properties": {
+    "development_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "stage": {
+      "type": "string"
+    },
+    "source_fingerprint": {
+      "type": "string"
+    },
+    "group_key": {
+      "type": "string"
+    },
+    "group_basis": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "model_release",
+        "model_version",
+        "product_release",
+        "research",
+        "capability",
+        "project_announcement",
+        "unspecified"
+      ]
+    },
+    "reported_kind": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "why_it_matters": {
+      "type": "string"
+    },
+    "model_identifiers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "model_versions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dropped_model_identifiers": {
+      "type": "number",
+      "default": 0
+    },
+    "supporting_item_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "supporting_sources_count": {
+      "type": "number",
+      "default": 0
+    },
+    "source_urls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "primary_published_at": {
+      "type": "string"
+    },
+    "earliest_published_at": {
+      "type": "string"
+    },
+    "latest_published_at": {
+      "type": "string"
+    },
+    "source_stated_claim": {
+      "type": "string"
+    },
+    "claim_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "claims_total": {
+      "type": "number",
+      "default": 0
+    },
+    "claims_rejected": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "partial",
+        "rejected"
+      ]
+    },
+    "source_states_claim": {
+      "type": "boolean",
+      "default": false
+    },
+    "evidence_supported_by_model": {
+      "type": "boolean",
+      "default": false
+    },
+    "support_state": {
+      "type": "string"
+    },
+    "independent_verification": {
+      "type": "string"
+    },
+    "validation": {
+      "type": "object"
+    },
+    "recorded_at": {
+      "type": "string"
+    },
+    "retention_days": {
+      "type": "number",
+      "default": 30
+    }
+  },
+  "required": [
+    "development_id",
+    "run_id",
+    "title"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": false
+  }
+}

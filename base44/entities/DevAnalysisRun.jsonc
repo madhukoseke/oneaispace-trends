@@ -1,0 +1,271 @@
+{
+  "name": "DevAnalysisRun",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "dry_run",
+        "analyze",
+        "suite"
+      ]
+    },
+    "stage": {
+      "type": "string"
+    },
+    "trigger": {
+      "type": "string"
+    },
+    "authorization_id": {
+      "type": "string"
+    },
+    "claim_state": {
+      "type": "string",
+      "default": "open"
+    },
+    "claim_token": {
+      "type": "string"
+    },
+    "claimed_at": {
+      "type": "string"
+    },
+    "execution_flag": {
+      "type": "boolean",
+      "default": false
+    },
+    "kill_switch_state": {
+      "type": "string"
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "running",
+        "dry_run",
+        "success",
+        "partial",
+        "failed",
+        "blocked",
+        "duplicate",
+        "cached",
+        "no_findings"
+      ]
+    },
+    "batch_record_cap": {
+      "type": "number",
+      "default": 10
+    },
+    "batch_record_count": {
+      "type": "number",
+      "default": 0
+    },
+    "call_budget_per_provider": {
+      "type": "number",
+      "default": 1
+    },
+    "call_budget_total": {
+      "type": "number",
+      "default": 2
+    },
+    "call_slot_a": {
+      "type": "string",
+      "default": "free"
+    },
+    "call_slot_b": {
+      "type": "string",
+      "default": "free"
+    },
+    "slot_a_reserved_at": {
+      "type": "string"
+    },
+    "slot_b_reserved_at": {
+      "type": "string"
+    },
+    "source_item_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "processed_item_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "source_fingerprint": {
+      "type": "string"
+    },
+    "cache_state": {
+      "type": "string"
+    },
+    "cache_covered_item_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "cache_entry_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "grouping": {
+      "type": "object"
+    },
+    "report": {
+      "type": "object"
+    },
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requested_models": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "resolved_models": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "resolved_model_available": {
+      "type": "boolean",
+      "default": false
+    },
+    "resolved_model_note": {
+      "type": "string"
+    },
+    "model_calls": {
+      "type": "number",
+      "default": 0
+    },
+    "provider_calls": {
+      "type": "number",
+      "default": 0
+    },
+    "calls_per_provider": {
+      "type": "object"
+    },
+    "usage_available": {
+      "type": "boolean",
+      "default": false
+    },
+    "usage": {
+      "type": "object"
+    },
+    "cost_known": {
+      "type": "boolean",
+      "default": false
+    },
+    "cost": {
+      "type": "object"
+    },
+    "cost_estimate_basis": {
+      "type": "string"
+    },
+    "estimated_spend_usd": {
+      "type": "number"
+    },
+    "spend_ceiling_usd": {
+      "type": "number"
+    },
+    "developments_accepted": {
+      "type": "number",
+      "default": 0
+    },
+    "developments_partial": {
+      "type": "number",
+      "default": 0
+    },
+    "developments_rejected": {
+      "type": "number",
+      "default": 0
+    },
+    "claims_accepted": {
+      "type": "number",
+      "default": 0
+    },
+    "claims_rejected": {
+      "type": "number",
+      "default": 0
+    },
+    "success_criteria": {
+      "type": "object"
+    },
+    "success_criteria_failed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tests": {
+      "type": "object"
+    },
+    "error_category": {
+      "type": "string"
+    },
+    "error_summary": {
+      "type": "string"
+    },
+    "operator_id": {
+      "type": "string"
+    },
+    "operator_role": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "finished_at": {
+      "type": "string"
+    },
+    "duration_ms": {
+      "type": "number"
+    },
+    "retention_days": {
+      "type": "number",
+      "default": 30
+    },
+    "retention_note": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "action"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": false
+  }
+}

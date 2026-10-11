@@ -47,6 +47,9 @@ import {
   RETENTION_NOTE, buildRunRecord, claimAuthorization, findAnchors, findRunById, listResults, listRuns, persistResults,
   persistRun, reserveCallSlot, scanForSecrets, updateRun,
 } from '../../shared/modelProofTrace.ts';
+import {
+  buildSupportQuestions, clip, createCaseRecorder, formatSourceBlock, makeReserve, refusalBody, usageTotals,
+} from '../../shared/pipelineSupport.ts';
 
 const EXTRACTION_SCHEMA = {
   type: 'object',
@@ -67,11 +70,6 @@ const EXTRACTION_SCHEMA = {
   required: ['claims'],
 };
 
-function clip(value, max) {
-  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
-  return text.length > max ? text.slice(0, max) : text;
-}
-
 // normalizeForMatch and the evidence check now live in shared/modelProofCriteria.ts,
 // so the mocked suite exercises exactly the code the live run uses.
 
@@ -90,25 +88,8 @@ function buildExtractionPrompt(sources) {
     'Return JSON matching the schema.',
     '',
     'SOURCES:',
-    ...sources.map((source) => `[${source.item_id}] source=${source.source} published_at=${source.published_at || 'unknown'} :: ${source.text}`),
+    ...formatSourceBlock(sources),
   ].join('\n');
-}
-
-function buildQuestions(claims) {
-  const questions = {};
-  claims.forEach((claim, index) => {
-    questions[`claim_${index + 1}`] = {
-      type: 'choice',
-      instructions: 'Judge only from the supplied source text. Does the quoted evidence support the claim?',
-      criteria: {
-        supported: 'The quoted evidence states the claim directly, with nothing important left out or added.',
-        mixed: 'The evidence supports part of the claim, but another part is unstated, weaker or broader.',
-        insufficient_evidence: 'The evidence does not address the claim, or is too vague to judge.',
-        contradicted: 'The evidence conflicts with the claim.',
-      },
-    };
-  });
-  return questions;
 }
 
 function estimateSpend(sourceChars, claimCount) {
@@ -133,14 +114,6 @@ function estimateSpend(sourceChars, claimCount) {
   return { estimated_usd: Number(total.toFixed(6)), parts };
 }
 
-function usageTotals(calls) {
-  const withUsage = calls.filter((call) => call.usage_available && call.usage);
-  if (!withUsage.length) return null;
-  const input = withUsage.reduce((sum, call) => sum + (call.usage.input_tokens || 0), 0);
-  const output = withUsage.reduce((sum, call) => sum + (call.usage.output_tokens || 0), 0);
-  return { input_tokens: input, output_tokens: output, reported_by_calls: withUsage.length };
-}
-
 // Cost estimation lives in shared/modelProofCriteria.ts: each call is priced with
 // its own provider price estimate and its own returned usage, never another
 // provider's price, and a call whose usage or price is unavailable is recorded as
@@ -153,14 +126,7 @@ function usageTotals(calls) {
 // tested.
 async function runContractSuite(deps, db, runId, reserve) {
   const cases = [];
-  const record = async (name, fn) => {
-    try {
-      const detail = await fn();
-      cases.push({ name, ok: detail.ok !== false, detail: detail.note || detail });
-    } catch (error) {
-      cases.push({ name, ok: false, detail: sanitizeMessage(error) });
-    }
-  };
+  const record = createCaseRecorder(cases);
 
   const echo = { transport: async (request) => ({ output: { echoed: request.model }, usage: null, resolved_model: null }) };
   const allow = { reserve: async ({ slot }) => ({ ok: true, updated: 1, slot }) };
@@ -669,31 +635,18 @@ export default async function (req) {
     // claimed, so repeated unauthorized attempts cannot grow the proof store
     // without bound. Auditability comes from this function's own runtime log line
     // plus the platform's request log for the refusal.
-    const blockedBeforeAuthorization = (category, summary) => {
-      console.log(JSON.stringify({
-        proof_audit: 'refused_before_authorization',
-        category,
-        action,
-        run_id: runId,
-        operator_id: user.id,
-        operator_role: user.role,
-        kill_switch: killSwitch,
-        at: new Date().toISOString(),
-      }));
-      return Response.json({
-        ok: false, status: 'blocked', run_id: runId, error_category: category, reason: summary, model_calls: 0,
-        authorization_consumed: false, record_created: false, kill_switch: killSwitch,
-      });
-    };
+    const refuseBefore = (category, summary) => Response.json(refusalBody({
+      auditKey: 'proof_audit', pipeline: PROOF_CONFIG.stage, category, action, runId, user, killSwitch, summary,
+    }));
 
     if (authorizationId.length < 8) {
-      return blockedBeforeAuthorization('authorization_required', 'blocked: a one-time authorization_id of at least 8 characters is required');
+      return refuseBefore('authorization_required', 'blocked: a one-time authorization_id of at least 8 characters is required');
     }
     if (payload.execute !== true) {
-      return blockedBeforeAuthorization('execution_flag_missing', 'blocked: payload did not carry execute: true');
+      return refuseBefore('execution_flag_missing', 'blocked: payload did not carry execute: true');
     }
     if (action === 'live' && !PROOF_CONFIG.execution_enabled) {
-      return blockedBeforeAuthorization('kill_switch_off', 'blocked: execution kill switch is off');
+      return refuseBefore('kill_switch_off', 'blocked: execution kill switch is off');
     }
 
     const claimToken = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${runId}-${Date.now()}`;
@@ -721,7 +674,7 @@ export default async function (req) {
     }
 
     const anchor = claim.anchor;
-    const reserve = (request) => reserveCallSlot(db, anchor.id, String(request.slot || ''), `${request.provider}:${request.model}`);
+    const reserve = makeReserve(reserveCallSlot, db, anchor.id);
 
     // Resolved lazily, inside the call that needs it, and only for the live proof.
     let typesafeConnection = null;
@@ -861,7 +814,7 @@ export default async function (req) {
           sources: sources.map((source) => ({ item_id: source.item_id, source: source.source, published_at: source.published_at, text: source.text })),
           claims: claims.map((claim) => ({ id: claim.claim_id, item_id: claim.item_id, claim: claim.claim, evidence_quote: claim.evidence_quote })),
         },
-        questions: buildQuestions(claims),
+        questions: buildSupportQuestions(claims.map((claim, index) => ({ claim_id: `claim_${index + 1}`, claim }))),
         timeout_ms: PROOF_CONFIG.timeout_ms,
         call_cap: PROOF_CONFIG.max_calls_per_provider,
         calls_already_made: 0,
