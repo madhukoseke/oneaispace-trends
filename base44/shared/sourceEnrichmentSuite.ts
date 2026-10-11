@@ -166,18 +166,26 @@ export async function runEnrichmentSuite() {
   await record('limits.batch_cap_is_ten_records', async () => {
     const many = Array.from({ length: 11 }, (_, index) => item({ id: `itm_${index}`, title: `Record ${index}`, canonical_url: `https://github.com/example/repo-${index}` }));
     const { db } = makeFakeDb(many);
-    const lookup = scriptedLookup({});
-    const eleven = await runEnrichment({ db, itemIds: many.map((row) => row.id), execute: true, lookup });
-    const empty = await runEnrichment({ db, itemIds: [], execute: true, lookup });
+    // Two separate spies: one for the two refused calls, one for the accepted call, so a refusal
+    // cannot be credited with the lookups the accepted run legitimately makes.
+    const refusedLookup = scriptedLookup({});
+    const eleven = await runEnrichment({ db, itemIds: many.map((row) => row.id), execute: true, lookup: refusedLookup });
+    const empty = await runEnrichment({ db, itemIds: [], execute: true, lookup: refusedLookup });
     const { db: exactDb, state } = makeFakeDb(many.slice(0, 10));
-    const ten = await runEnrichment({ db: exactDb, itemIds: many.slice(0, 10).map((row) => row.id), execute: true, lookup });
+    const acceptedLookup = scriptedLookup({});
+    const ten = await runEnrichment({ db: exactDb, itemIds: many.slice(0, 10).map((row) => row.id), execute: true, lookup: acceptedLookup });
     return {
       ok: ENRICHMENT_CONFIG.max_records === 10
         && eleven.ok === false && eleven.error_category === 'record_cap' && eleven.writes === 0
         && empty.ok === false && empty.error_category === 'no_records'
-        && ten.ok === true && ten.selection.requested === 10
-        && lookup.calls.length === 0 && state.analysis_touched.length === 0,
-      note: { cap: ENRICHMENT_CONFIG.max_records, eleven: eleven.error_category, empty: empty.error_category, ten_ok: ten.ok, lookups_after_refusals: lookup.calls.length },
+        && ten.ok === true && ten.selection.requested === 10 && ten.selection.lookuped_records === 10
+        && refusedLookup.calls.length === 0 && acceptedLookup.calls.length === 10
+        && state.writes.length === 0 && state.analysis_touched.length === 0,
+      note: {
+        cap: ENRICHMENT_CONFIG.max_records, eleven: eleven.error_category, empty: empty.error_category,
+        ten_ok: ten.ok, lookups_after_refusals: refusedLookup.calls.length,
+        lookups_in_accepted_run: acceptedLookup.calls.length, writes_after_accepted_run: state.writes.length,
+      },
     };
   });
 
