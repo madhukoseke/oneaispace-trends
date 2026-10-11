@@ -205,10 +205,13 @@ export async function callModel(request, deps = {}) {
     }
     const reservation = await deps.reserve({ ...request, slot, provider, model, requested_model: model });
     if (!reservation || reservation.ok !== true) {
+      // A reservation the platform itself refused is reported as exactly that, not as an
+      // exhausted budget: the slot was never consumed, so an operator can tell the two apart.
+      const platformRefusal = Boolean(reservation && reservation.reason === 'reservation_error');
       return envelope({
         ...base,
         error: {
-          category: 'call_budget_exhausted',
+          category: platformRefusal ? 'reservation_unavailable' : 'call_budget_exhausted',
           summary: (reservation && reservation.summary) || `the server-side call budget for slot "${slot}" was already consumed`,
         },
       });

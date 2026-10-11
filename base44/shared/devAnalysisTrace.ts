@@ -192,22 +192,45 @@ export async function reserveCallSlot(db, anchorId, slot, holder) {
     return { ok: false, updated: 0, slot, holder, summary: `slot "${slot}" is not one of the two configured call slots` };
   }
   const stamp = slot === 'a' ? 'slot_a_reserved_at' : 'slot_b_reserved_at';
-  try {
-    const result = await db.DevAnalysisRun.updateMany(
-      { id: anchorId, [field]: 'free' },
-      { $set: { [field]: holder, [stamp]: new Date().toISOString() } },
-    );
-    const updated = typeof result.updated === 'number' ? result.updated : null;
-    return {
-      ok: updated === 1,
-      updated,
-      slot,
-      holder,
-      summary: updated === 1 ? '' : `the server-side budget for slot "${slot}" was already consumed`,
-    };
-  } catch (error) {
-    return { ok: false, updated: null, slot, holder, summary: cleanError(error) };
+
+  // A guarded update the platform refuses changed nothing: the filter is the guard, so the slot
+  // is still free and the same attempt can be repeated safely, and a slot that is genuinely taken
+  // reports updated 0 - which is never retried and never consumed twice. Only a thrown platform
+  // error is retried, and if every attempt is refused the outcome is reported as a reservation
+  // that could not be made, not as an exhausted budget.
+  const RESERVATION_ATTEMPTS = 3;
+  let lastError = null;
+  for (let attempt = 0; attempt < RESERVATION_ATTEMPTS; attempt += 1) {
+    if (attempt) await new Promise((resolve) => setTimeout(resolve, 700 * attempt));
+    try {
+      const result = await db.DevAnalysisRun.updateMany(
+        { id: anchorId, [field]: 'free' },
+        { $set: { [field]: holder, [stamp]: new Date().toISOString() } },
+      );
+      const updated = typeof result.updated === 'number' ? result.updated : null;
+      return {
+        ok: updated === 1,
+        updated,
+        slot,
+        holder,
+        attempts: attempt + 1,
+        reason: updated === 1 ? 'reserved' : 'slot_taken',
+        summary: updated === 1 ? '' : `the server-side budget for slot "${slot}" was already consumed`,
+      };
+    } catch (error) {
+      lastError = error;
+    }
   }
+
+  return {
+    ok: false,
+    updated: null,
+    slot,
+    holder,
+    attempts: RESERVATION_ATTEMPTS,
+    reason: 'reservation_error',
+    summary: `the platform refused the reservation of slot "${slot}" on ${RESERVATION_ATTEMPTS} attempts: ${cleanError(lastError)}`,
+  };
 }
 
 // One entry per provider call attempt, in call order: what that call actually produced.

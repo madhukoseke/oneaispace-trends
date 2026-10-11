@@ -18,8 +18,8 @@ import {
   buildDryRunReport, buildSourceView, estimateBatchWorstCase, selectAnalysable,
 } from './devAnalysisCriteria.ts';
 import {
-  buildCallDetails, buildDevRunRecord, buildRejectionReport, listClaims, listDevelopments, persistCacheEntry,
-  persistClaims, persistDevelopments, persistRun, readCacheEntries, reserveCallSlot, updateRun,
+  buildCallDetails, buildDevRunRecord, buildRejectionReport, findRunById, listClaims, listDevelopments,
+  persistCacheEntry, persistClaims, persistDevelopments, persistRun, readCacheEntries, reserveCallSlot, updateRun,
 } from './devAnalysisTrace.ts';
 import { createCaseRecorder } from './pipelineSupport.ts';
 import { FEED_LIMIT_MAX, loadFeedInputs, resolveFeed } from './devFeed.ts';
@@ -195,16 +195,57 @@ function liveClaimsFixture() {
 
 export async function runSuite({ db, base44, runId }) {
   const cases = [];
-  const record = createCaseRecorder(cases);
+  const recordBase = createCaseRecorder(cases);
+  // The cases are spaced out because this suite makes many entity calls in a few seconds and
+  // the platform throttles a burst. Spacing them is what keeps a throttled reservation from
+  // being needed at all; the retry above is the fallback, not the mechanism.
+  const record = async (name, fn) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return recordBase(name, fn);
+  };
 
   const items = fixtureItems();
   const sources = buildSourceView(items);
   const grouping = groupCandidates(items);
 
-  const anchorFor = async (key) => persistRun(db, buildDevRunRecord({
-    run_id: `${runId}-${key}`, action: 'suite', status: 'running',
-    authorization_id: `${runId}-${key}`, notes: `suite anchor ${key}`,
-  }));
+  // The suite's anchors are created in one batch and read back once, before any case reserves a
+  // slot on one of them: the live path also works from a record the store has handed back
+  // (it reads its anchor back after consuming its one-time authorization), and creating them
+  // together keeps this suite's own entity-call burst small.
+  const ANCHOR_KEYS = [
+    'multi', 'unsupported', 'noquote', 'badid', 'hallucinated', 'partial', 'empty', 'extractfail',
+    'idempotent', 'roundtrip', 'budget', 'callcap', 'states',
+    'res-quine', 'res-merit', 'res-negative1', 'res-negative2',
+  ];
+  const anchors = {};
+  {
+    await db.DevAnalysisRun.bulkCreate(ANCHOR_KEYS.map((key) => buildDevRunRecord({
+      run_id: `${runId}-${key}`, action: 'suite', status: 'running',
+      authorization_id: `${runId}-${key}`, notes: `suite anchor ${key}`,
+    })));
+    const page = await db.DevAnalysisRun.filter(
+      { run_id: { $in: ANCHOR_KEYS.map((key) => `${runId}-${key}`) } },
+      { limit: ANCHOR_KEYS.length },
+    );
+    for (const row of page.items || []) anchors[row.run_id] = row;
+  }
+
+  const anchorFor = async (key) => {
+    const found = anchors[`${runId}-${key}`];
+    if (found) return found;
+    const created = await persistRun(db, buildDevRunRecord({
+      run_id: `${runId}-${key}`, action: 'suite', status: 'running',
+      authorization_id: `${runId}-${key}`, notes: `suite anchor ${key}`,
+    }));
+    const resolved = (await findRunById(db, created.run_id)) || created;
+    anchors[`${runId}-${key}`] = resolved;
+    return resolved;
+  };
+
+  // A guarded slot update is refused when the platform throttles it under a burst of entity
+  // calls. That refusal consumes nothing, so reserveCallSlot itself retries it a bounded number
+  // of times and reports a slot that is genuinely taken without retrying - this suite therefore
+  // calls it directly and does not add a second retry layer of its own.
   const pipelineDeps = (anchor, transport) => ({
     base44,
     getTypesafeConnection: async () => ({ baseURL: 'stub://typesafe', token: 'stub-value', headers: {} }),
@@ -627,14 +668,21 @@ export async function runSuite({ db, base44, runId }) {
     const claim = pipeline.finalized.claims[0];
     const development = pipeline.finalized.developments[0];
     return {
-      ok: claim.source_states_claim === true && claim.quote_in_record === true
+      ok: Boolean(claim) && Boolean(development)
+        && claim.source_states_claim === true && claim.quote_in_record === true
         && claim.evidence_supports_claim === true && claim.model_state === 'supported'
         && claim.independent_verification === 'not_performed'
         && development.support_state === 'evidence_supported_by_model'
         && pipeline.finalized.developments.every((row) => row.independent_verification === 'not_performed'),
       note: {
-        source_states_claim: claim.source_states_claim, model_state: claim.model_state,
-        independent_verification: claim.independent_verification, support_state: development.support_state,
+        source_states_claim: claim && claim.source_states_claim, model_state: claim && claim.model_state,
+        independent_verification: claim && claim.independent_verification, support_state: development && development.support_state,
+        status: pipeline.status, criteria: pipeline.criteria,
+        dispatches: [pipeline.callA.dispatches, pipeline.callB ? pipeline.callB.dispatches : null],
+        call_a_error: pipeline.callA.error, call_b_error: pipeline.callB ? pipeline.callB.error : null,
+        claims_stored: pipeline.finalized.claims.length, developments_stored: pipeline.finalized.developments.length,
+        rejected_developments: pipeline.collected.rejected_developments,
+        rejected_claims: pipeline.collected.rejected_claims.length,
       },
     };
   });
@@ -765,6 +813,8 @@ export async function runSuite({ db, base44, runId }) {
       note: {
         kind: development && development.kind, reported_kind: development && development.reported_kind,
         research: development && development.research_evidence, status: pipeline.status,
+        criteria: pipeline.criteria, dispatches: [pipeline.callA.dispatches, pipeline.callB ? pipeline.callB.dispatches : null],
+        call_a_error: pipeline.callA.error, call_b_error: pipeline.callB ? pipeline.callB.error : null,
       },
     };
   });
@@ -802,6 +852,9 @@ export async function runSuite({ db, base44, runId }) {
       note: {
         kind: development && development.kind, identifiers: development && development.model_identifiers,
         artifacts: development && development.research_evidence && development.research_evidence.quoted_artifact_tokens,
+        status: pipeline.status, criteria: pipeline.criteria,
+        dispatches: [pipeline.callA.dispatches, pipeline.callB ? pipeline.callB.dispatches : null],
+        call_a_error: pipeline.callA.error, call_b_error: pipeline.callB ? pipeline.callB.error : null,
       },
     };
   });
@@ -837,7 +890,11 @@ export async function runSuite({ db, base44, runId }) {
       ok: pipeline.finalized.developments.length === 0 && pipeline.finalized.claims.length === 0
         && Boolean(rejection) && rejection.reasons.some((reason) => reason.includes('no identifiable event'))
         && research.eligible === false && research.reason_code === 'no_publication_language',
-      note: { reasons: rejection && rejection.reasons, research_reason: research.reason_code, stored: pipeline.finalized.developments.length },
+      note: {
+        reasons: rejection && rejection.reasons, research_reason: research.reason_code,
+        stored: pipeline.finalized.developments.length, status: pipeline.status,
+        dispatches: pipeline.callA.dispatches, call_a_error: pipeline.callA.error,
+      },
     };
   });
 
@@ -872,7 +929,11 @@ export async function runSuite({ db, base44, runId }) {
       ok: pipeline.finalized.developments.length === 0
         && Boolean(rejection) && rejection.reasons.some((reason) => reason.includes('no identifiable event'))
         && research.eligible === false && research.reason_code === 'artifact_not_in_evidence',
-      note: { reasons: rejection && rejection.reasons, research_reason: research.reason_code, stored: pipeline.finalized.developments.length },
+      note: {
+        reasons: rejection && rejection.reasons, research_reason: research.reason_code,
+        stored: pipeline.finalized.developments.length, status: pipeline.status,
+        dispatches: pipeline.callA.dispatches, call_a_error: pipeline.callA.error,
+      },
     };
   });
 
@@ -881,17 +942,35 @@ export async function runSuite({ db, base44, runId }) {
     const quine = researchGrouping.candidates.find((candidate) => candidate.item_ids.includes('itm_quine'));
     const merit = researchGrouping.candidates.find((candidate) => candidate.item_ids.includes('itm_merit'));
     const ecology = researchGrouping.candidates.find((candidate) => candidate.item_ids.includes('itm_ecology'));
-    const refused = researchGrouping.refused_merges.filter((entry) => entry.item_ids.length > 1);
+    // A named research artefact links nothing by itself: three separate papers stay three
+    // single-source candidates even though one of them names a versioned model. No pair of them
+    // shares a variant anchor or a normalised title, and none shares a generic token that would
+    // be reported as a refused merge ("benchmark" and "benchmarks" are distinct tokens), so the
+    // guarantee under test here is that a paper's own name never joins records together.
+    const trioIds = ['itm_quine', 'itm_merit', 'itm_ecology'];
+    const linksWithinTrio = researchGrouping.links
+      .filter((entry) => entry.item_ids.filter((id) => trioIds.includes(id)).length > 1);
+    const refusalsWithinTrio = researchGrouping.refused_merges
+      .filter((entry) => entry.item_ids.filter((id) => trioIds.includes(id)).length > 1);
+    const anchorLists = [quine, merit, ecology].map((group) => (group ? group.shared_anchors : []));
+    const anchors = anchorLists.flat();
+    // Each single-source candidate carries its own title key, so the assertion is that the
+    // three keys differ - the title rule linked nothing - rather than that they are absent.
+    const titleKeys = [quine, merit, ecology].map((group) => (group ? group.shared_title_key : ''));
     return {
       ok: Boolean(quine) && Boolean(merit) && Boolean(ecology)
         && quine.item_ids.length === 1 && merit.item_ids.length === 1 && ecology.item_ids.length === 1
         && new Set([quine.group_key, merit.group_key, ecology.group_key]).size === 3
-        && refused.some((entry) => entry.item_ids.includes('itm_quine') && entry.item_ids.includes('itm_merit'))
-        && refused.every((entry) => (entry.shared_generic_tokens || []).length > 0),
+        && new Set(anchors).size === anchors.length
+        && new Set(titleKeys).size === 3 && titleKeys.every(Boolean)
+        && linksWithinTrio.length === 0 && refusalsWithinTrio.length === 0
+        && [quine, merit, ecology].every((group) => group.basis === 'single_source'),
       note: {
         group_keys: [quine, merit, ecology].map((group) => group && group.group_key),
-        refused_merges: refused.length,
-        shared_generic: refused.map((entry) => (entry.shared_generic_tokens || []).slice(0, 4)),
+        bases: [quine, merit, ecology].map((group) => group && group.basis),
+        anchors_by_candidate: anchorLists,
+        links_within_trio: linksWithinTrio.length,
+        refusals_within_trio: refusalsWithinTrio.length,
       },
     };
   });

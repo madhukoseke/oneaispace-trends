@@ -84,8 +84,10 @@ export function validateProvenance(development, run) {
   if (!run) return fail('parent_run_missing');
   if (run.action === 'suite') return fail('parent_run_is_suite_fixture');
   if (run.stage !== DEV_ANALYSIS_CONFIG.stage) return fail('stage_mismatch');
-  if (run.action !== 'analyze') return fail('parent_run_not_an_authorized_batch');
+  // A dry run is reported as exactly that, ahead of the coarser action check, so a plan-only run
+  // is never described as something else in the exclusion report.
   if (run.dry_run === true) return fail('parent_run_was_a_dry_run');
+  if (run.action !== 'analyze') return fail('parent_run_not_an_authorized_batch');
   if (run.status !== 'success') return fail('parent_run_not_successful');
   if (run.execution_flag !== true) return fail('parent_run_flagged_not_executed');
   if (run.kill_switch_state !== 'on') return fail('parent_run_not_armed');
