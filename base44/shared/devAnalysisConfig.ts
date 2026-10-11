@@ -19,8 +19,9 @@
 import { PRICE_ESTIMATES_USD_PER_MTOK, ESTIMATE_TOKENS } from './modelProofConfig.ts';
 
 export const DEV_ANALYSIS_CONFIG = {
-  // Off by default and untouched by the pipeline itself.
-  execution_enabled: false,
+  // TEMPORARILY ARMED, by hand, for the single authorized live batch of 2026-10-11.
+  // Restored to false immediately after that batch, whatever its outcome.
+  execution_enabled: true,
   stage: 'phase2a-development-analysis',
   trigger: 'manual',
 
