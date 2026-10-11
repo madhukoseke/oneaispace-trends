@@ -22,7 +22,7 @@ import {
   persistCacheEntry, persistClaims, persistDevelopments, persistRun, readCacheEntries, reserveCallSlot, updateRun,
 } from './devAnalysisTrace.ts';
 import { createCaseRecorder } from './pipelineSupport.ts';
-import { FEED_LIMIT_MAX, loadFeedInputs, resolveFeed } from './devFeed.ts';
+import { FEED_LIMIT_MAX, loadFeedInputs, resolveDevelopment, resolveFeed } from './devFeed.ts';
 import { runPipeline } from './devAnalysisPipeline.ts';
 
 function fixtureItems() {
@@ -1086,7 +1086,8 @@ export async function runSuite({ db, base44, runId }) {
     });
     const item = feed.items[0];
     const allowed = [
-      'development_id', 'title', 'kind', 'kind_label', 'kind_basis', 'summary', 'why_it_matters', 'published_at',
+      'development_id', 'title', 'kind', 'kind_label', 'kind_basis', 'event_type', 'event_type_label',
+      'summary', 'why_it_matters', 'published_at',
       'source', 'evidence', 'support', 'independent_verification', 'disclosure', 'supporting_source_count',
     ];
     const forbidden = [
@@ -1108,6 +1109,55 @@ export async function runSuite({ db, base44, runId }) {
       note: {
         keys: item ? Object.keys(item) : [], source: item && item.source,
         support: item && item.support, independent_verification: item && item.independent_verification,
+      },
+    };
+  });
+
+  // Phase 4B: the detail lookup. One development, resolved through exactly the same checks the
+  // list applies, and every unknown, ambiguous or unproven identifier answered as unavailable
+  // rather than as a partial record - so a detail page can never become a side door to an
+  // analysis entity.
+  await record('feed.detail_lookup_is_proven_and_fails_closed', async () => {
+    const live = liveDevelopmentFixture();
+    const runsById = { run_live_1: liveRunFixture() };
+    const claimsByRun = { run_live_1: liveClaimsFixture() };
+
+    const found = resolveDevelopment({ developments: [live], runsById, claimsByRun, developmentId: live.development_id });
+    const unknown = resolveDevelopment({ developments: [live], runsById, claimsByRun, developmentId: 'dev_absent' });
+    const blank = resolveDevelopment({ developments: [live], runsById, claimsByRun, developmentId: '   ' });
+    const duplicate = resolveDevelopment({ developments: [live, { ...live }], runsById, claimsByRun, developmentId: live.development_id });
+    const fixture = resolveDevelopment({
+      developments: [liveDevelopmentFixture({ development_id: 'dev_detail_suite', run_id: 'run_detail_suite' })],
+      runsById: { run_detail_suite: liveRunFixture({ run_id: 'run_detail_suite', action: 'suite' }) },
+      claimsByRun: { run_detail_suite: liveClaimsFixture() },
+      developmentId: 'dev_detail_suite',
+    });
+    const dryRun = resolveDevelopment({
+      developments: [liveDevelopmentFixture({ development_id: 'dev_detail_dry', run_id: 'run_detail_dry' })],
+      runsById: { run_detail_dry: liveRunFixture({ run_id: 'run_detail_dry', action: 'dry_run', dry_run: true }) },
+      claimsByRun: { run_detail_dry: liveClaimsFixture() },
+      developmentId: 'dev_detail_dry',
+    });
+    const noEvidence = resolveDevelopment({
+      developments: [liveDevelopmentFixture({ development_id: 'dev_detail_noquote', run_id: 'run_detail_noquote', claim_ids: [] })],
+      runsById: { run_detail_noquote: liveRunFixture({ run_id: 'run_detail_noquote' }) },
+      claimsByRun: { run_detail_noquote: liveClaimsFixture() },
+      developmentId: 'dev_detail_noquote',
+    });
+    return {
+      ok: found.ok === true && found.item.development_id === live.development_id
+        && found.item.evidence.quote === 'We propose Quine, a self-compiling language for agentic systems'
+        && typeof found.item.event_type_label === 'string'
+        && unknown.ok === false && unknown.reason_code === 'development_not_found'
+        && blank.ok === false && blank.reason_code === 'missing_development_id'
+        && duplicate.ok === false && duplicate.reason_code === 'duplicate_development_id'
+        && fixture.ok === false && fixture.reason_code === 'parent_run_is_suite_fixture'
+        && dryRun.ok === false && dryRun.reason_code === 'parent_run_was_a_dry_run'
+        && noEvidence.ok === false && noEvidence.reason_code === 'missing_evidence_quote',
+      note: {
+        found: found.ok, unknown: unknown.reason_code, blank: blank.reason_code,
+        duplicate: duplicate.reason_code, suite_fixture: fixture.reason_code,
+        dry_run: dryRun.reason_code, missing_evidence: noEvidence.reason_code,
       },
     };
   });
