@@ -165,6 +165,15 @@
     "error_summary": {
       "type": "string"
     },
+    "success_criteria": {
+      "type": "object"
+    },
+    "success_criteria_failed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "tests": {
       "type": "object"
     },

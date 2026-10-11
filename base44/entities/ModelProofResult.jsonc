@@ -87,6 +87,12 @@
     "grounding": {
       "type": "object"
     },
+    "evidence_check": {
+      "type": "object"
+    },
+    "independent_verification": {
+      "type": "string"
+    },
     "evaluation_states": {
       "type": "object"
     },

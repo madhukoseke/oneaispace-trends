@@ -41,6 +41,9 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.52';
 import { PROOF_CONFIG, PLATFORM_LIMITATIONS, PRICE_ESTIMATES_USD_PER_MTOK, ESTIMATE_TOKENS } from '../../shared/modelProofConfig.ts';
 import { callModel, MODEL_CHOICES, sanitizeMessage, categorizeError } from '../../shared/modelAdapters.ts';
 import {
+  EVIDENCE_CONCEPTS, estimateCostFromCalls, evaluateProofCriteria, normalizeForMatch, quoteMatchInRecord,
+} from '../../shared/modelProofCriteria.ts';
+import {
   buildRunRecord, claimAuthorization, findAnchors, findRunById, listResults, listRuns, persistResults, persistRun,
   reserveCallSlot, scanForSecrets, updateRun,
 } from '../../shared/modelProofTrace.ts';
@@ -69,26 +72,8 @@ function clip(value, max) {
   return text.length > max ? text.slice(0, max) : text;
 }
 
-// Typographic differences are tolerated; wording is not.
-function normalizeForMatch(value) {
-  return String(value ?? '')
-    .toLowerCase()
-    .replace(/[\u2018\u2019\u201c\u201d]/g, '"')
-    .replace(/[\u2013\u2014]/g, '-')
-    .replace(/\u2026/g, '...')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// The evidence quote must exist in the stored record. An elided quote is accepted
-// only when every one of its segments is present verbatim.
-function quoteFoundInRecord(quote, recordText) {
-  const normalizedQuote = normalizeForMatch(quote);
-  if (normalizedQuote.length < PROOF_CONFIG.min_evidence_quote_chars) return false;
-  const segments = normalizedQuote.split('...').map((part) => part.trim()).filter((part) => part.length >= 12);
-  if (!segments.length) return false;
-  return segments.every((segment) => recordText.includes(segment));
-}
+// normalizeForMatch and the evidence check now live in shared/modelProofCriteria.ts,
+// so the mocked suite exercises exactly the code the live run uses.
 
 function buildExtractionPrompt(sources) {
   return [
@@ -156,15 +141,10 @@ function usageTotals(calls) {
   return { input_tokens: input, output_tokens: output, reported_by_calls: withUsage.length };
 }
 
-function costEstimateFromUsage(usage) {
-  if (!usage) return null;
-  const priceB = PRICE_ESTIMATES_USD_PER_MTOK['typesafe:jev'];
-  const usd = (usage.input_tokens / 1e6) * priceB.input + (usage.output_tokens / 1e6) * priceB.output;
-  return {
-    estimate_usd: Number(usd.toFixed(6)),
-    basis: 'returned token usage x published list price; an estimate, not a billed figure',
-  };
-}
+// Cost estimation lives in shared/modelProofCriteria.ts: each call is priced with
+// its own provider price estimate and its own returned usage, never another
+// provider's price, and a call whose usage or price is unavailable is recorded as
+// unavailable rather than estimated.
 
 // --- the contract suite: adapter, cap, timeout, error, authorization, call-budget
 // and tracing behaviour. Every case runs against a stub transport, so no provider
@@ -354,8 +334,161 @@ async function runContractSuite(deps, db, runId, reserve) {
     return { ok, note: { silent: silentCall.resolved_model, reported: reportedCall.resolved_model, requested: reportedCall.requested_model } };
   });
 
+  // --- success criteria: a proof is only successful when every criterion holds.
+  const critSource = { item_id: 'i1', canonical_url: 'https://example.org/a', source: 'example', text: 'The model shipped in June 2026.' };
+  const critClaim = { claim_id: 'claim_1', item_id: 'i1' };
+  const critAssessed = { claim_id: 'claim_1', item_id: 'i1', model_state: 'supported' };
+  const critCallA = { ok: true, provider: 'base44-core', requested_model: 'gpt_6_luna', output: { claims: [{}] }, usage: null, usage_available: false, dispatches: 1 };
+  const critCallB = { ok: true, provider: 'typesafe', requested_model: 'jev', output: { answers: { claim_1: { choice: 'supported' } } }, usage: null, usage_available: false, dispatches: 1 };
+  const critBase = { callA: critCallA, callB: critCallB, claims: [critClaim], evaluations: [critAssessed], sources: [critSource] };
+
+  await record('criteria.all_met_reports_success', async () => {
+    const verdict = evaluateProofCriteria(critBase);
+    return { ok: verdict.status === 'success' && verdict.failed_criteria.length === 0 && verdict.total === 6, note: verdict };
+  });
+
+  await record('criteria.skipped_model_b_is_not_success', async () => {
+    const verdict = evaluateProofCriteria({ ...critBase, callB: null, evaluations: [] });
+    return {
+      ok: verdict.status !== 'success' && verdict.criteria.model_b_dispatched === false
+        && verdict.criteria.both_provider_calls_completed === false && verdict.criteria.model_b_valid_assessments === false,
+      note: { status: verdict.status, failed: verdict.failed_criteria },
+    };
+  });
+
+  await record('criteria.failed_model_b_is_not_success', async () => {
+    const failedB = { ...critCallB, ok: false, error: { category: 'provider_error', summary: 'upstream failed' } };
+    const verdict = evaluateProofCriteria({ ...critBase, callB: failedB });
+    return {
+      ok: verdict.status !== 'success' && verdict.criteria.model_b_dispatched === true
+        && verdict.criteria.both_provider_calls_completed === false,
+      note: { status: verdict.status, failed: verdict.failed_criteria },
+    };
+  });
+
+  await record('criteria.empty_extraction_is_not_success', async () => {
+    const verdict = evaluateProofCriteria({ ...critBase, callA: { ...critCallA, output: { claims: [] } }, claims: [], evaluations: [] });
+    return {
+      ok: verdict.status !== 'success' && verdict.criteria.model_a_valid_extraction === false,
+      note: { status: verdict.status, failed: verdict.failed_criteria },
+    };
+  });
+
+  await record('criteria.unassessed_claim_is_not_success', async () => {
+    const verdict = evaluateProofCriteria({ ...critBase, evaluations: [{ claim_id: 'claim_1', item_id: 'i1', model_state: 'not_evaluated' }] });
+    return {
+      ok: verdict.status !== 'success' && verdict.criteria.model_b_valid_assessments === false,
+      note: { status: verdict.status, failed: verdict.failed_criteria },
+    };
+  });
+
+  await record('criteria.invalid_source_reference_is_not_success', async () => {
+    const brokenSource = evaluateProofCriteria({ ...critBase, sources: [{ ...critSource, canonical_url: '' }] });
+    const orphanClaim = evaluateProofCriteria({ ...critBase, claims: [{ claim_id: 'claim_1', item_id: 'missing' }] });
+    return {
+      ok: brokenSource.criteria.stored_source_references_valid === false
+        && orphanClaim.criteria.stored_source_references_valid === false,
+      note: { missing_canonical_url: brokenSource.status, orphan_claim: orphanClaim.status },
+    };
+  });
+
+  // --- evidence: three concepts kept apart, and elided quotes matched in order.
+  await record('evidence.concepts_kept_separate', async () => {
+    const keys = Object.keys(EVIDENCE_CONCEPTS);
+    const ok = keys.length === 3
+      && keys.includes('excerpt_present_in_stored_record')
+      && keys.includes('model_support_assessment')
+      && keys.includes('independent_factual_verification')
+      && /not_performed/.test(EVIDENCE_CONCEPTS.independent_factual_verification);
+    return { ok, note: EVIDENCE_CONCEPTS };
+  });
+
+  await record('evidence.quote_must_exist_in_stored_record', async () => {
+    const recordText = normalizeForMatch('The model was released in June 2026 and costs 12 dollars per seat.');
+    const present = quoteMatchInRecord('released in June 2026 and costs 12 dollars', recordText);
+    const absent = quoteMatchInRecord('released in December 2027 and costs 99 dollars', recordText);
+    return { ok: present.found === true && absent.found === false, note: { present, absent } };
+  });
+
+  await record('evidence.elided_segments_must_match_in_order', async () => {
+    const recordText = normalizeForMatch('Alpha beta gamma delta epsilon zeta eta theta.');
+    const inOrder = quoteMatchInRecord('alpha beta gamma ... epsilon zeta eta', recordText);
+    const outOfOrder = quoteMatchInRecord('epsilon zeta eta ... alpha beta gamma', recordText);
+    return { ok: inOrder.found === true && outOfOrder.found === false, note: { inOrder, outOfOrder } };
+  });
+
+  await record('evidence.short_or_empty_quote_rejected', async () => {
+    const recordText = normalizeForMatch('Alpha beta gamma delta epsilon zeta eta theta.');
+    const tooShort = quoteMatchInRecord('alpha', recordText);
+    const empty = quoteMatchInRecord('', recordText);
+    return { ok: tooShort.found === false && empty.found === false, note: { tooShort, empty } };
+  });
+
+  // --- cost: per provider, from that call's own usage, never presented as billed.
+  await record('cost.priced_from_each_providers_own_usage', async () => {
+    const luna = { provider: 'base44-core', requested_model: 'gpt_6_luna', dispatches: 1, usage_available: true, usage: { input_tokens: 100000, output_tokens: 10000 } };
+    const jev = { provider: 'typesafe', requested_model: 'jev', dispatches: 1, usage_available: true, usage: { input_tokens: 50000, output_tokens: 0 } };
+    const estimate = estimateCostFromCalls([{ call: luna, role: 'A' }, { call: jev, role: 'B' }], PRICE_ESTIMATES_USD_PER_MTOK);
+    const expectedA = Number(((100000 / 1e6) * 0.2 + (10000 / 1e6) * 1.2).toFixed(6));
+    const expectedB = Number(((50000 / 1e6) * 0.042).toFixed(6));
+    const ifJevPriceWereReused = Number(((100000 / 1e6) * 0.042).toFixed(6));
+    const ok = estimate.available === true
+      && estimate.parts[0].price_key === 'base44-core:gpt_6_luna'
+      && estimate.parts[0].estimate_usd === expectedA
+      && estimate.parts[0].estimate_usd !== ifJevPriceWereReused
+      && estimate.parts[1].price_key === 'typesafe:jev'
+      && estimate.parts[1].estimate_usd === expectedB
+      && estimate.estimate_usd === Number((expectedA + expectedB).toFixed(6))
+      && estimate.is_billed_cost === false;
+    return {
+      ok,
+      note: {
+        total: estimate.estimate_usd,
+        parts: estimate.parts.map((part) => ({ key: part.price_key, usd: part.estimate_usd })),
+        if_jev_price_were_reused_for_luna: ifJevPriceWereReused,
+      },
+    };
+  });
+
+  await record('cost.missing_usage_is_unavailable', async () => {
+    const noUsage = { provider: 'base44-core', requested_model: 'gpt_6_luna', dispatches: 1, usage_available: false, usage: null };
+    const jev = { provider: 'typesafe', requested_model: 'jev', dispatches: 1, usage_available: true, usage: { input_tokens: 10000, output_tokens: 0 } };
+    const estimate = estimateCostFromCalls([{ call: noUsage, role: 'A' }, { call: jev, role: 'B' }], PRICE_ESTIMATES_USD_PER_MTOK);
+    return {
+      ok: estimate.available === false && estimate.estimate_usd === null
+        && estimate.parts[0].estimate_usd === null && Boolean(estimate.parts[0].unavailable_reason)
+        && estimate.parts[1].estimate_usd !== null,
+      note: {
+        available: estimate.available,
+        total: estimate.estimate_usd,
+        reason_a: estimate.parts[0].unavailable_reason,
+        priced_b: estimate.parts[1].estimate_usd,
+      },
+    };
+  });
+
+  await record('cost.missing_price_is_unavailable', async () => {
+    const luna = { provider: 'base44-core', requested_model: 'gpt_6_luna', dispatches: 1, usage_available: true, usage: { input_tokens: 1000, output_tokens: 100 } };
+    const estimate = estimateCostFromCalls([{ call: luna, role: 'A' }], {});
+    return {
+      ok: estimate.available === false && estimate.estimate_usd === null
+        && estimate.parts[0].price_available === false
+        && /no price estimate/.test(String(estimate.parts[0].unavailable_reason || '')),
+      note: { available: estimate.available, reason: estimate.parts[0].unavailable_reason },
+    };
+  });
+
+  await record('cost.never_reported_as_billed', async () => {
+    const luna = { provider: 'base44-core', requested_model: 'gpt_6_luna', dispatches: 1, usage_available: true, usage: { input_tokens: 1000, output_tokens: 100 } };
+    const estimate = estimateCostFromCalls([{ call: luna, role: 'A' }], PRICE_ESTIMATES_USD_PER_MTOK);
+    return {
+      ok: estimate.is_billed_cost === false && /no billed cost/.test(estimate.billed_cost_note) && /estimate/.test(estimate.basis),
+      note: { is_billed_cost: estimate.is_billed_cost, billed_cost_note: estimate.billed_cost_note },
+    };
+  });
+
   await record('limitations.declared', async () => {
-    const required = ['atomicity', 'duplicate_anchors', 'invoke_llm_cancellation', 'invoke_llm_retry', 'typesafe_cancellation', 'typesafe_retry', 'resolved_model', 'retention'];
+    const required = ['atomicity', 'duplicate_anchors', 'invoke_llm_cancellation', 'invoke_llm_retry', 'typesafe_cancellation', 'typesafe_retry', 'resolved_model', 'retention', 'independent_verification', 'cost', 'blocked_before_authorization'];
     const missing = required.filter((key) => !PLATFORM_LIMITATIONS[key]);
     return { ok: missing.length === 0, note: { undocumented: missing, declared: required.length } };
   });
@@ -433,6 +566,9 @@ export default async function (req) {
           call_slot_a: run.call_slot_a, call_slot_b: run.call_slot_b,
           requested_models: run.requested_models, resolved_models: run.resolved_models,
           model_calls: run.model_calls, recorded_at: run.created_date,
+          success_criteria: run.success_criteria || null,
+          success_criteria_failed: run.success_criteria_failed || [],
+          cost_estimate: run.cost || null,
         })),
         results: results.map((row) => ({
           role: row.model_role, provider: row.provider, requested_model: row.requested_model,
@@ -454,29 +590,39 @@ export default async function (req) {
     }
 
     const authorizationId = clip(payload.authorization_id, 80);
-    const blockedRun = async (category, summary) => {
-      const record = await persistRun(db, buildRunRecord({
-        run_id: runId, action, status: 'blocked', error_category: category, error_summary: summary,
-        execution_flag: payload.execute === true, kill_switch_state: killSwitch,
-        model_calls: 0, started_at: new Date(startedAt).toISOString(), finished_at: new Date().toISOString(),
-        duration_ms: Date.now() - startedAt, ...operator,
+    // Every gate runs before the authorization is consumed, so a refused attempt
+    // leaves the one-time authorization untouched and usable.
+    //
+    // A request refused here is answered and logged, but it creates no proof-run
+    // record: records are written only once a one-time authorization has been
+    // claimed, so repeated unauthorized attempts cannot grow the proof store
+    // without bound. Auditability comes from this function's own runtime log line
+    // plus the platform's request log for the refusal.
+    const blockedBeforeAuthorization = (category, summary) => {
+      console.log(JSON.stringify({
+        proof_audit: 'refused_before_authorization',
+        category,
+        action,
+        run_id: runId,
+        operator_id: user.id,
+        operator_role: user.role,
+        kill_switch: killSwitch,
+        at: new Date().toISOString(),
       }));
       return Response.json({
-        ok: false, status: 'blocked', run_id: runId, error_category: category, model_calls: 0,
-        authorization_consumed: false, kill_switch: killSwitch, record_id: record.id,
+        ok: false, status: 'blocked', run_id: runId, error_category: category, reason: summary, model_calls: 0,
+        authorization_consumed: false, record_created: false, kill_switch: killSwitch,
       });
     };
 
-    // Every gate runs before the authorization is consumed, so a refused attempt
-    // leaves the one-time authorization untouched and usable.
     if (authorizationId.length < 8) {
-      return blockedRun('authorization_required', 'blocked: a one-time authorization_id of at least 8 characters is required');
+      return blockedBeforeAuthorization('authorization_required', 'blocked: a one-time authorization_id of at least 8 characters is required');
     }
     if (payload.execute !== true) {
-      return blockedRun('execution_flag_missing', 'blocked: payload did not carry execute: true');
+      return blockedBeforeAuthorization('execution_flag_missing', 'blocked: payload did not carry execute: true');
     }
     if (action === 'live' && !PROOF_CONFIG.execution_enabled) {
-      return blockedRun('kill_switch_off', 'blocked: execution kill switch is off');
+      return blockedBeforeAuthorization('kill_switch_off', 'blocked: execution kill switch is off');
     }
 
     const claimToken = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${runId}-${Date.now()}`;
@@ -619,6 +765,7 @@ export default async function (req) {
       perItem[itemId] = (perItem[itemId] || 0) + 1;
       if (perItem[itemId] > PROOF_CONFIG.max_claims_per_item || claims.length >= PROOF_CONFIG.max_claims) { droppedDuplicate += 1; continue; }
       const source = sources.find((entry) => entry.item_id === itemId);
+      const match = quoteMatchInRecord(quote, source ? source.record_text : '');
       claims.push({
         claim_id: `claim_${claims.length + 1}`,
         item_id: itemId,
@@ -626,7 +773,8 @@ export default async function (req) {
         evidence_quote: quote,
         canonical_url: source ? source.canonical_url : '',
         source: source ? source.source : '',
-        quote_in_record: quoteFoundInRecord(quote, source ? source.record_text : ''),
+        quote_in_record: match.found,
+        quote_segments: match.segments,
       });
     }
 
@@ -665,24 +813,42 @@ export default async function (req) {
           claim: claim.claim,
           evidence_quote: claim.evidence_quote,
           canonical_url: claim.canonical_url,
+          // Three separate things, never collapsed into one verdict:
+          //   quote_in_record         - an evidence check computed here, in code
+          //   model_state             - the evaluation model's own judgement
+          //   independent_verification - not performed; recorded as such, not implied
           quote_in_record: claim.quote_in_record,
+          quote_segments: claim.quote_segments,
           model_state: modelState,
-          state: finalState,
+          assessment_state: finalState,
           downgraded: claim.quote_in_record ? false : modelState !== 'insufficient_evidence',
+          independent_verification: 'not_performed',
           probabilities: (answer && answer.probabilities) || null,
           confidence: typeof confidence[claim.claim_id] === 'number' ? confidence[claim.claim_id] : null,
         };
       });
     }
 
-    const states = {};
-    for (const row of evaluations) states[row.state] = (states[row.state] || 0) + 1;
+    const answersReturned = Object.keys((callB && callB.output && callB.output.answers) || {}).length;
+    const modelStates = {};
+    for (const row of evaluations) modelStates[row.model_state] = (modelStates[row.model_state] || 0) + 1;
+    const evidenceCheck = {
+      quote_present_in_stored_record: evaluations.filter((row) => row.quote_in_record).length,
+      quote_not_present: evaluations.filter((row) => !row.quote_in_record).length,
+    };
 
     const usage = usageTotals([callA, callB].filter(Boolean));
-    const cost = costEstimateFromUsage(usage);
-    const callStatus = [callA, callB].filter(Boolean).map((call) => call.ok);
-    const okCalls = callStatus.filter(Boolean).length;
-    const status = okCalls === callStatus.length && claims.length ? 'success' : okCalls ? 'partial' : 'failed';
+    const cost = estimateCostFromCalls(
+      [{ call: callA, role: 'A' }, { call: callB, role: 'B' }],
+      PRICE_ESTIMATES_USD_PER_MTOK,
+    );
+
+    // Success is a conjunction of explicit criteria, never the absence of an error:
+    // both models must have been dispatched, both must have returned usable output,
+    // and every stored source reference must be intact. A run whose second model was
+    // skipped cannot report success.
+    const proof = evaluateProofCriteria({ callA, callB, claims, evaluations, sources });
+    const { criteria, status } = proof;
     const modelCalls = callA.dispatches + (callB ? callB.dispatches : 0);
     const finishedAt = new Date().toISOString();
 
@@ -731,19 +897,27 @@ export default async function (req) {
         output_validation: {
           resolved_model_available: Boolean(callB.resolved_model),
           questions_asked: claims.length,
-          answers_returned: Object.keys((callB.output && callB.output.answers) || {}).length,
+          answers_returned: answersReturned,
+          assessments_valid: evaluations.filter((row) => row.model_state !== 'not_evaluated').length,
           confidence_returned: (callB.output && callB.output.confidence) || null,
         },
         grounding: {
-          rule: 'claim -> evidence quote -> stored record -> canonical original url -> evaluation',
-          states_kept_distinct: ['not_evaluated', 'supported', 'mixed', 'insufficient_evidence', 'contradicted'],
+          rule: 'claim -> evidence quote -> stored record -> canonical original url -> model assessment',
+          concepts_kept_separate: EVIDENCE_CONCEPTS,
           checked: evaluations.length,
-          quote_found_in_record: evaluations.filter((row) => row.quote_in_record).length,
-          quote_not_found: evaluations.filter((row) => !row.quote_in_record).length,
+          quote_found_in_record: evidenceCheck.quote_present_in_stored_record,
+          quote_not_found: evidenceCheck.quote_not_present,
           downgraded_for_missing_quote: evaluations.filter((row) => row.downgraded).length,
+          independent_factual_verification: 'not_performed',
           chain: evaluations,
         },
-        evaluation_states: states,
+        evidence_check: evidenceCheck,
+        independent_verification: 'not_performed',
+        evaluation_states: {
+          model_states: modelStates,
+          evidence_check: evidenceCheck,
+          independent_verification: 'not_performed',
+        },
         ...(callB.usage ? { usage: callB.usage } : {}),
         usage_available: callB.usage_available, cost_known: false,
         ...(callB.error ? { error_category: callB.error.category, error_summary: callB.error.summary } : {}),
@@ -753,6 +927,8 @@ export default async function (req) {
 
     const run = await updateRun(db, anchor.id, {
       status,
+      success_criteria: criteria,
+      success_criteria_failed: proof.failed_criteria,
       providers: requestedModels.length ? [callA.provider].concat(callB ? [callB.provider] : []) : [],
       requested_models: requestedModels,
       resolved_models: resolvedModels, resolved_model_available: resolvedModels.length > 0, resolved_model_note: resolvedNote,
@@ -760,20 +936,22 @@ export default async function (req) {
       input_item_ids: itemIds, input_record_count: itemIds.length, input_chars: sourceChars,
       finished_at: finishedAt, duration_ms: Date.now() - startedAt,
       usage_available: Boolean(usage), ...(usage ? { usage } : {}),
-      cost_known: false, ...(cost ? { cost } : {}),
-      cost_estimate_basis: 'published list price x returned usage where the provider returned usage; otherwise unknown',
+      cost_known: false, cost,
+      cost_estimate_basis: cost.basis,
       estimated_spend_usd: estimate.estimated_usd,
       error_category: callA.ok ? (callB && !callB.ok ? callB.error.category : '') : callA.error.category,
       error_summary: callA.ok ? (callB && !callB.ok ? callB.error.summary : '') : callA.error.summary,
-      notes: `live proof: ${itemIds.length} records, ${modelCalls} model calls, ${claims.length} claims evaluated. ${resolvedNote}. The authorization was consumed before the first call and no retry is performed.`,
+      notes: `live proof: ${itemIds.length} records, ${modelCalls} model calls, ${claims.length} claims assessed. Status ${status}: ${proof.passed}/${proof.total} success criteria met${proof.failed_criteria.length ? `; not met: ${proof.failed_criteria.join(', ')}` : ''}. ${resolvedNote}. The authorization was consumed before the first call and no retry is performed.`,
     });
 
     const stored = await persistResults(db, resultRows);
     const secretFindings = scanForSecrets({ resultRows, run: { run_id: runId, calls_per_provider: callsPerProvider } });
 
     return Response.json({
-      ok: status !== 'failed',
+      ok: status === 'success',
       action, run_id: runId, status,
+      success_criteria: criteria, success_criteria_failed: proof.failed_criteria,
+      success_criteria_met: `${proof.passed}/${proof.total}`,
       authorization_id: authorizationId, authorization_consumed: true, kill_switch: killSwitch,
       providers: [callA.provider].concat(callB ? [callB.provider] : []),
       requested_models: requestedModels,
@@ -781,7 +959,8 @@ export default async function (req) {
       call_budget: { per_provider: PROOF_CONFIG.max_calls_per_provider, total: PROOF_CONFIG.max_calls_total, consumed: modelCalls },
       model_calls: modelCalls, calls_per_provider: callsPerProvider,
       usage_available: Boolean(usage), usage: usage || 'not returned by provider',
-      cost_known: false, cost: cost || 'unknown: the platform returns no billed cost or credit figure',
+      cost_known: false, cost,
+      billed_cost: cost.billed_cost_note,
       estimated_spend_usd: estimate.estimated_usd, spend_ceiling_usd: PROOF_CONFIG.spend_ceiling_usd,
       records: sources.map((source) => ({ item_id: source.item_id, source: source.source, canonical_url: source.canonical_url, excerpt_chars: source.text.length })),
       extraction: {
@@ -797,8 +976,10 @@ export default async function (req) {
         status: callB.ok ? 'success' : (callB.timed_out ? 'timed_out' : 'failed'),
         latency_ms: callB.latency_ms, usage: callB.usage || 'not returned by provider',
         requested_model: callB.requested_model, resolved_model: callB.resolved_model,
-        states, chain: evaluations, error: callB.error || null,
-      } : 'skipped: no valid claims to evaluate',
+        model_states: modelStates, evidence_check: evidenceCheck,
+        independent_verification: 'not_performed',
+        chain: evaluations, error: callB.error || null,
+      } : 'skipped: no valid claims to evaluate; a skipped second model cannot report success',
       slot_b_consumed: Boolean(callB),
       stored: { run_record_id: run.id, result_record_ids: stored.map((row) => row.id) },
       secret_findings: secretFindings,

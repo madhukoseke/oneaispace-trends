@@ -58,6 +58,12 @@ export const PLATFORM_LIMITATIONS = {
   resolved_model:
     'Neither provider is documented to return a resolved model identifier. It is recorded only when a call actually returns one, and is never inferred from the requested name.',
   retention: 'Retention is recorded as metadata only. No delete or purge operation exists anywhere in this path.',
+  independent_verification:
+    'Not performed. The proof checks whether an evidence quote exists in the stored record, and asks a model whether that quote supports the claim. Neither is independent factual verification: no source outside the stored records is consulted.',
+  cost:
+    'No billed cost is available from the platform. Costs are per-call estimates from published price estimates and provider-returned token usage, recorded separately per provider, and are never presented as billed amounts.',
+  blocked_before_authorization:
+    'A request refused before the one-time authorization is claimed is answered and logged, but no proof-run record is created for it, so repeated unauthorized attempts cannot grow the proof store without bound.',
 };
 
 // Published third-party list prices per million tokens, used only to size a
