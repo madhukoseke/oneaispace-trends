@@ -10,6 +10,7 @@ import ScrollToTop from './components/ScrollToTop';
 import AppShell from '@/components/layout/AppShell';
 import Trends from '@/pages/Trends';
 import TrendDetail from '@/pages/TrendDetail';
+import DevelopmentDetail from '@/pages/DevelopmentDetail';
 import Saved from '@/pages/Saved';
 
 const AuthenticatedApp = () => {
@@ -42,6 +43,7 @@ const AuthenticatedApp = () => {
         <Route path="/" element={<Navigate to="/trends" replace />} />
         <Route path="/trends" element={<Trends />} />
         <Route path="/trends/:slug" element={<TrendDetail />} />
+        <Route path="/developments/:developmentId" element={<DevelopmentDetail />} />
         <Route path="/saved" element={<Saved />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />

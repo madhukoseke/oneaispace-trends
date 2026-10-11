@@ -50,6 +50,13 @@ export function shortDate(value) {
   return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+// Full publication date, with the year: a card states when the source published it.
+export function calendarDate(value) {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return "";
+  return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 export function formatCount(value) {
   const number = Number(value) || 0;
   if (number < 1000) return String(number);

@@ -66,6 +66,25 @@ export const FEED_KIND_LABELS = {
   unspecified: 'Development',
 };
 
+// The stored event type, where a development carries one. It is a finer classification than
+// the kind, and the surfaces prefer it; the kind label remains the fallback.
+export const FEED_EVENT_TYPE_LABELS = {
+  model_release: 'Model release',
+  research_contribution: 'Research contribution',
+  software_release: 'Software release',
+  product_announcement: 'Product announcement',
+  adoption_case_study: 'Adoption case study',
+  analysis_commentary: 'Analysis commentary',
+  other: 'Other',
+};
+
+// The two ways a detail lookup can fail before provenance is even consulted. Everything else
+// is answered with the same reason the list would use.
+export const FEED_DETAIL_REASONS = {
+  missing_development_id: 'no development identifier was supplied',
+  development_not_found: 'no accepted development is stored under this identifier',
+};
+
 // The limit is bounded on the server, whatever the caller asks for.
 export function clampLimit(value) {
   const raw = Number(value);
@@ -136,6 +155,7 @@ export function projectDevelopment({ development, claims }) {
   }
 
   const kind = String(development.kind || 'unspecified');
+  const eventType = String(development.event_type || '');
   const supportState = String(development.support_state || 'source_states_claim_only');
 
   return {
@@ -146,6 +166,8 @@ export function projectDevelopment({ development, claims }) {
       kind,
       kind_label: FEED_KIND_LABELS[kind] || FEED_KIND_LABELS.unspecified,
       kind_basis: clip(development.kind_basis, 240),
+      event_type: eventType,
+      event_type_label: FEED_EVENT_TYPE_LABELS[eventType] || '',
       summary: clip(development.summary, 400),
       why_it_matters: clip(development.why_it_matters, 300),
       published_at: development.primary_published_at,
@@ -231,14 +253,42 @@ export function resolveFeed({ developments, runsById = {}, claimsByRun = {}, lim
   };
 }
 
+// The detail lookup. Exactly one development is resolved, through the same provenance and
+// evidence checks the list applies above. An identifier that is unknown, ambiguous or
+// ineligible is answered as unavailable: the caller is never given a partially proven
+// development, and never a reason to fall back to an administrator-only analysis entity.
+export function resolveDevelopment({ developments, runsById = {}, claimsByRun = {}, developmentId } = {}) {
+  const fail = (reasonCode, reason) => ({ ok: false, reason_code: reasonCode, reason });
+
+  const id = String(developmentId || '').trim();
+  if (!id) return fail('missing_development_id', FEED_DETAIL_REASONS.missing_development_id);
+
+  const matches = (developments || []).filter((row) => row && String(row.development_id || '') === id);
+  if (!matches.length) return fail('development_not_found', FEED_DETAIL_REASONS.development_not_found);
+  if (matches.length > 1) return fail('duplicate_development_id', FEED_PROVENANCE_REASONS.duplicate_development_id);
+
+  const development = matches[0];
+  const provenance = validateProvenance(development, (runsById || {})[development.run_id] || null);
+  if (!provenance.ok) return fail(provenance.reason_code, provenance.reason);
+
+  const projected = projectDevelopment({ development, claims: (claimsByRun || {})[development.run_id] || [] });
+  if (!projected.ok) return fail(projected.reason_code, projected.reason);
+
+  return { ok: true, item: projected.item };
+}
+
 // Reads only: the three filters below are the whole database footprint of the feed. No write,
 // no dispatch and no schedule exists in this path.
-export async function loadFeedInputs(db, { limit = FEED_LIMIT_DEFAULT } = {}) {
+export async function loadFeedInputs(db, { limit = FEED_LIMIT_DEFAULT, developmentId = '' } = {}) {
   const bounded = clampLimit(limit);
-  const page = await db.DevDevelopment.filter(
-    { status: 'accepted' },
-    { limit: FEED_READ_LIMIT, sort: '-primary_published_at' },
-  );
+  // A detail lookup reads only the record it was asked for; the list reads the newest page.
+  const id = String(developmentId || '').trim();
+  const page = id
+    ? await db.DevDevelopment.filter({ status: 'accepted', development_id: id }, { limit: 2 })
+    : await db.DevDevelopment.filter(
+      { status: 'accepted' },
+      { limit: FEED_READ_LIMIT, sort: '-primary_published_at' },
+    );
   const developments = page.items || [];
   const runIds = Array.from(new Set(developments.map((row) => row.run_id).filter(Boolean)));
 

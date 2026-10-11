@@ -1,5 +1,5 @@
 /**
- * OneAISpace Trends - external acceptance test.
+ * OneAISpace Trends - external acceptance test (Phase 4B premium UI).
  *
  * Playwright cannot run inside the Base44 sandbox (no browser automation is
  * installed there), so this spec is meant to be run externally against a
@@ -9,118 +9,53 @@
  *   BASE_URL=https://<your-app-url> npx playwright test tests/trends.spec.js
  *
  * BASE_URL defaults to the local dev server at http://localhost:5173.
- * Every assertion below maps to a stated requirement of the Phase 0 UI work.
+ *
+ * The homepage under test is one column: header, Trends title and description, one
+ * prominent title search, the compact category row, Latest Developments from the public
+ * feed, then Explore AI. Every assertion below maps to a requirement of Phase 4B.
  */
 const { test, expect } = require("@playwright/test");
 
 const BASE = process.env.BASE_URL || "http://localhost:5173";
 const TRENDS = `${BASE}/trends`;
 
-// Positions of the homepage sections. Trending Today is only rendered when a
-// development actually qualifies, so it may legitimately be absent.
-const sectionPositions = async (page) => {
-  const official = page.getByRole("heading", { name: "Official & Research", exact: true });
-  const allContent = page.getByRole("heading", { name: "All Content", exact: true });
-  await expect(official).toBeVisible();
-  await expect(allContent).toBeVisible();
-  const trending = page.getByRole("heading", { name: "Trending Today", exact: true });
-  return {
-    official: (await official.boundingBox()).y,
-    trending: (await trending.count()) ? (await trending.boundingBox()).y : null,
-    allContent: (await allContent.boundingBox()).y,
-  };
-};
-
-// The hosts the first-party publisher registry approves. A badge may never appear
-// on a card from anywhere else.
-const FIRST_PARTY_HOSTS = [
-  /^openai\.com$/, /^chatgpt\.com$/, /^anthropic\.com$/, /^claude\.com$/, /^deepmind\.google$/,
-  /^deepmind\.com$/, /^blog\.google$/, /^research\.google$/, /^ai\.google\.dev$/, /^nvidia\.com$/,
-  /^blogs\.nvidia\.com$/, /^huggingface\.co$/, /^news\.mit\.edu$/, /^bair\.berkeley\.edu$/,
-  /^microsoft\.com$/, /^blogs\.microsoft\.com$/, /^ai\.meta\.com$/, /^x\.ai$/, /^mistral\.ai$/,
-  /^allenai\.org$/,
-];
-
 const noHorizontalOverflow = async (page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
 
+const sectionY = async (page, name) => {
+  const heading = page.getByRole("heading", { name, exact: true });
+  await expect(heading).toBeVisible();
+  return (await heading.boundingBox()).y;
+};
+
 test.describe("homepage hierarchy", () => {
-  test("shows header and search, then Official & Research, Trending Today, All Content in order", async ({ page }) => {
+  test("leads with the title and one search field, then the category row, then content", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(TRENDS);
-    await expect(page.getByRole("heading", { name: "Trends", exact: true })).toBeVisible();
-    await expect(page.getByLabel("Search item titles")).toBeVisible();
 
-    const { official, trending, allContent } = await sectionPositions(page);
-    expect(official).toBeLessThan(allContent);
-    if (trending !== null) {
-      expect(official).toBeLessThan(trending);
-      expect(trending).toBeLessThan(allContent);
+    const heading = page.getByRole("heading", { name: "Trends", exact: true });
+    await expect(heading).toBeVisible();
+    const search = page.getByLabel("Search item titles");
+    await expect(search).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Browse by category" })).toBeVisible();
+
+    // The search sits directly under the page identity, well above the content sections.
+    const searchBox = await search.boundingBox();
+    expect(searchBox.y).toBeLessThan((await heading.boundingBox()).y + 220);
+
+    const explore = await sectionY(page, "Explore AI");
+    const developments = page.locator('section[aria-labelledby="latest-developments"]');
+    if (await developments.count()) {
+      const developmentY = (await developments.boundingBox()).y;
+      expect(developmentY).toBeLessThan(explore);
     }
   });
 
-  test("Official & Research is capped at three cards and keeps dates and original links", async ({ page }) => {
+  test("the removed homepage sections are gone", async ({ page }) => {
     await page.goto(TRENDS);
-    const section = page.locator('section[aria-labelledby="official-and-research"]');
-    const cards = section.locator("article");
-    await expect(cards.first()).toBeVisible();
-    expect(await cards.count()).toBeLessThanOrEqual(3);
-
-    const card = cards.first();
-    await expect(card.locator("time")).toBeVisible();
-    const original = card.getByRole("link", { name: /Original/ });
-    expect(await original.getAttribute("href")).toMatch(/^https?:\/\//);
-    expect(await original.getAttribute("target")).toBe("_blank");
-  });
-
-  test("an Official badge only appears on a registered first-party domain", async ({ page }) => {
-    await page.goto(TRENDS);
-    const section = page.locator('section[aria-labelledby="official-and-research"]');
-    const badged = section.locator('article:has([data-provenance="Official"])');
-    const count = await badged.count();
-    expect(count).toBeGreaterThan(0);
-
-    for (let index = 0; index < count; index += 1) {
-      const href = await badged.nth(index).locator('a[href^="http"]').first().getAttribute("href");
-      const host = new URL(href).hostname.replace(/^www\./, "");
-      expect(FIRST_PARTY_HOSTS.some((pattern) => pattern.test(host))).toBe(true);
+    for (const gone of ["Official & Research", "Trending Today", "All Content"]) {
+      await expect(page.getByRole("heading", { name: gone, exact: true })).toHaveCount(0);
     }
-  });
-
-  test("third-party coverage is never badged Official", async ({ page }) => {
-    await page.goto(TRENDS);
-    for (const host of ["techcrunch.com", "github.com", "news.ycombinator.com"]) {
-      const thirdParty = page.locator(`article:has(a[href*="${host}"])`);
-      if (!(await thirdParty.count())) continue;
-      expect(await thirdParty.first().locator('[data-provenance="Official"]').count()).toBe(0);
-    }
-  });
-
-  test("Trending Today lists only specific developments, or is hidden entirely", async ({ page }) => {
-    await page.goto(TRENDS);
-    const section = page.locator('section[aria-labelledby="trending-today"]');
-    if (!(await section.count())) return; // nothing qualified: the section is not rendered
-
-    const rows = section.locator("li");
-    expect(await rows.count()).toBeGreaterThan(0);
-    const banned = ["GPT", "AI", "LLM", "Agents", "Models", "Research"];
-
-    for (let index = 0; index < (await rows.count()); index += 1) {
-      const row = rows.nth(index);
-      const title = (await row.locator("span").first().innerText()).trim();
-      expect(banned).not.toContain(title);
-      await expect(row.getByText(/signals?/)).toBeVisible();
-      await expect(row.getByText("Not evaluated")).toBeVisible();
-    }
-  });
-
-  test("keeps one navigation row in the header and the content-type filters inside All Content", async ({ page }) => {
-    await page.goto(TRENDS);
-    const formatTabs = page.getByRole("tablist", { name: "Format" });
-    await expect(formatTabs).toBeVisible();
-    const tabY = (await formatTabs.boundingBox()).y;
-    const allContentY = (await page.getByRole("heading", { name: "All Content", exact: true }).boundingBox()).y;
-    expect(tabY).toBeGreaterThan(allContentY);
   });
 
   test("results start high on the page and nothing overflows sideways", async ({ page }) => {
@@ -128,27 +63,110 @@ test.describe("homepage hierarchy", () => {
     await page.goto(TRENDS);
     const firstCard = page.locator("article").first();
     await expect(firstCard).toBeVisible();
-    expect((await firstCard.boundingBox()).y).toBeLessThan(1100);
+    expect((await firstCard.boundingBox()).y).toBeLessThan(1200);
     expect(await noHorizontalOverflow(page)).toBe(true);
   });
 });
 
-test.describe("repository cards", () => {
-  test("show one name, no repeating image preview, and a source link", async ({ page }) => {
-    await page.goto(`${TRENDS}?format=project`);
-    const card = page.locator("article").first();
-    await expect(card).toBeVisible();
-    await expect(card.getByText("REPOSITORY", { exact: false })).toBeVisible();
-    // The GitHub image preview was removed: it repeated the name and description.
-    expect(await card.locator("img").count()).toBe(0);
-    // Concise metrics, and an explicit link back to the original repository.
-    await expect(card.getByText(/stars/i)).toBeVisible();
-    const source = card.getByRole("link", { name: /GitHub/i });
-    expect(await source.getAttribute("href")).toMatch(/^https:\/\/github\.com\//);
+test.describe("categories", () => {
+  test("the six labels are offered and map to existing identifiers", async ({ page }) => {
+    await page.goto(TRENDS);
+    const nav = page.getByRole("navigation", { name: "Browse by category" });
+    for (const label of ["All", "Models", "Agents", "Research", "Tools"]) {
+      await expect(nav.getByRole("button", { name: label, exact: true })).toBeVisible();
+    }
+    // More exists only when the taxonomy has categories left over.
+    const more = nav.getByRole("button", { name: "More" });
+    if (await more.count()) await expect(more).toBeVisible();
+  });
+
+  test("choosing a category is URL state and browser Back restores the view", async ({ page }) => {
+    await page.goto(TRENDS);
+    const nav = page.getByRole("navigation", { name: "Browse by category" });
+    await nav.getByRole("button", { name: "Models", exact: true }).click();
+    await expect(page).toHaveURL(/category=models/);
+    await expect(page.locator("article").first()).toBeVisible();
+
+    await nav.getByRole("button", { name: "All", exact: true }).click();
+    await expect(page).not.toHaveURL(/category=/);
+
+    await nav.getByRole("button", { name: "Agents", exact: true }).click();
+    await expect(page).toHaveURL(/category=agents/);
+    await page.goBack();
+    await expect(page).not.toHaveURL(/category=agents/);
+  });
+
+  test("More holds the remaining categories and narrows the same catalogue", async ({ page }) => {
+    await page.goto(TRENDS);
+    const nav = page.getByRole("navigation", { name: "Browse by category" });
+    const more = nav.getByRole("button", { name: "More" });
+    if (!(await more.count())) return;
+
+    await more.click();
+    const option = page.locator('[role="dialog"] button').first();
+    if (!(await option.count())) return;
+    const label = (await option.innerText()).split("\n")[0].trim();
+    await option.click();
+    await expect(page).toHaveURL(/category=/);
+    await expect(nav.getByRole("button", { name: new RegExp(label) })).toBeVisible();
   });
 });
 
-test.describe("filters and search", () => {
+test.describe("latest developments", () => {
+  test("cards carry the event type, title, summary, publisher, date and an Explore action", async ({ page }) => {
+    await page.goto(TRENDS);
+    const section = page.locator('section[aria-labelledby="latest-developments"]');
+    if (!(await section.count())) return; // nothing eligible: the section is not rendered at all
+
+    const cards = section.locator("article");
+    await expect(cards.first()).toBeVisible();
+    expect(await cards.count()).toBeGreaterThan(0);
+
+    const card = cards.first();
+    await expect(card.locator("h3")).toBeVisible();
+    await expect(card.locator("time")).toBeVisible();
+    await expect(card.getByRole("link", { name: /Explore/ })).toBeVisible();
+    // The evidence panel belongs to the detail page, not to the list.
+    await expect(card.getByText("Not independently verified")).toHaveCount(0);
+  });
+
+  test("an Explore action opens the development detail page", async ({ page }) => {
+    await page.goto(TRENDS);
+    const section = page.locator('section[aria-labelledby="latest-developments"]');
+    if (!(await section.count())) return;
+
+    const explore = section.locator("article").first().getByRole("link", { name: /Explore/ });
+    await expect(explore).toHaveAttribute("href", /\/developments\/.+/);
+    await explore.click();
+    await expect(page).toHaveURL(/\/developments\/.+/);
+    await expect(page.getByText("Supported by source excerpt", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Not independently verified/)).toBeVisible();
+    await expect(page.getByRole("link", { name: /Open original source/ })).toHaveAttribute("href", /^https?:\/\//);
+  });
+
+  test("an unknown development identifier fails closed as unavailable", async ({ page }) => {
+    await page.goto(`${BASE}/developments/not-a-real-development`);
+    await expect(page.getByText("That development is not available")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Back to Trends" })).toBeVisible();
+  });
+});
+
+test.describe("explore AI", () => {
+  test("keeps format navigation and hides the secondary filters until asked", async ({ page }) => {
+    await page.goto(TRENDS);
+    await expect(page.getByRole("tablist", { name: "Format" })).toBeVisible();
+
+    const filters = page.getByRole("button", { name: /^Filters/ });
+    await expect(filters).toBeVisible();
+    await expect(filters).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByLabel("Filter by source")).toHaveCount(0);
+
+    await filters.click();
+    await expect(filters).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByLabel("Filter by source")).toBeVisible();
+    await expect(page.getByLabel("Sort results")).toBeVisible();
+  });
+
   test("content-type filters stay in the URL and change the results", async ({ page }) => {
     await page.goto(TRENDS);
     await page.getByRole("tab", { name: /Articles/ }).click();
@@ -164,6 +182,19 @@ test.describe("filters and search", () => {
     await expect(page).not.toHaveURL(/q=agent/);
   });
 
+  test("search and a source filter combine without losing either", async ({ page }) => {
+    await page.goto(TRENDS);
+    await page.getByRole("button", { name: /^Filters/ }).click();
+    await page.getByLabel("Filter by source").click();
+    const option = page.getByRole("option").nth(1);
+    const source = (await option.innerText()).trim();
+    await option.click();
+    await expect(page).toHaveURL(/source=/);
+    await page.getByLabel("Search item titles").fill("a");
+    await expect(page).toHaveURL(/source=/);
+    await expect(page).toHaveURL(/q=a/);
+  });
+
   test("empty state is honest and clearable", async ({ page }) => {
     await page.goto(`${TRENDS}?q=zzzzzzzzzz`);
     await expect(page.getByText("No results match these filters.")).toBeVisible();
@@ -172,14 +203,41 @@ test.describe("filters and search", () => {
   });
 });
 
+test.describe("source cards", () => {
+  test("one hierarchy: source, title, excerpt, date and save, with no reported metrics", async ({ page }) => {
+    await page.goto(TRENDS);
+    const card = page.locator("article").first();
+    await expect(card).toBeVisible();
+    await expect(card.locator("h3")).toBeVisible();
+    await expect(card.locator("time")).toBeVisible();
+    await expect(card.getByRole("button", { name: /^Save / })).toBeVisible();
+    // Stars, scores and similar source-reported figures are not shown on a card.
+    await expect(card.getByText(/stars/i)).toHaveCount(0);
+  });
+
+  test("the card's primary action opens the canonical original source", async ({ page }) => {
+    await page.goto(TRENDS);
+    const original = page.locator("article").first().locator("h3 a").first();
+    await expect(original).toHaveAttribute("href", /^https?:\/\//);
+    await expect(original).toHaveAttribute("target", "_blank");
+  });
+
+  test("repository items keep one name and no repeating preview image", async ({ page }) => {
+    await page.goto(`${TRENDS}?format=project`);
+    const card = page.locator("article").first();
+    await expect(card).toBeVisible();
+    await expect(card.getByText("REPOSITORY", { exact: false })).toBeVisible();
+    expect(await card.locator("img").count()).toBe(0);
+  });
+});
+
 test.describe("topic pages", () => {
-  test("header keeps title, description, counts and refresh time, and drops the metadata rows", async ({ page }) => {
+  test("header keeps title, description, counts and refresh time", async ({ page }) => {
     await page.goto(`${TRENDS}/frontier-models`);
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Frontier Models", exact: true })).toBeVisible();
     await expect(page.getByText(/^\d+ items · \d+ sources · Updated /)).toBeVisible();
 
-    // Removed from topic pages, and not to be reintroduced.
     for (const gone of ["What happened?", "Why it matters", "Evidence and claims", "Related sources", "Original links"]) {
       await expect(page.getByText(gone, { exact: true })).toHaveCount(0);
     }
@@ -205,7 +263,6 @@ test.describe("topic pages", () => {
       await page.goto(`${TRENDS}/${slug}`);
       await expect(page.getByRole("heading", { name: "Latest Content", exact: true })).toBeVisible();
       await expect(page.locator("article").first()).toBeVisible();
-      await expect(page.getByText("What happened?", { exact: true })).toHaveCount(0);
     }
   });
 
@@ -222,8 +279,7 @@ test.describe("topic pages", () => {
     await page.goto(`${TRENDS}/research`);
     const card = page.locator("article").first();
     await expect(card).toBeVisible();
-    const original = card.locator('a[href^="http"]').first();
-    await expect(original).toBeVisible();
+    const original = card.locator("h3 a").first();
     await expect(original).toHaveAttribute("target", "_blank");
     await expect(card.getByRole("button", { name: /^Save / })).toBeVisible();
   });
@@ -273,16 +329,22 @@ test.describe("themes and responsiveness", () => {
     expect(await page.evaluate(() => document.documentElement.className)).toBe(themeAfterClick);
   });
 
-  test("mobile keeps the order, stacks the search and does not overflow", async ({ page }) => {
+  test("mobile stacks the search under the title and does not overflow", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(TRENDS);
-    const { official, trending, allContent } = await sectionPositions(page);
-    expect(official).toBeLessThan(allContent);
-    if (trending !== null) expect(official).toBeLessThan(trending);
 
     const heading = await page.getByRole("heading", { name: "Trends", exact: true }).boundingBox();
     const search = await page.getByLabel("Search item titles").boundingBox();
     expect(search.y).toBeGreaterThan(heading.y + heading.height - 4);
+
+    // One column, so the second card sits below the first.
+    const cards = page.locator("article");
+    if ((await cards.count()) > 1) {
+      const first = await cards.nth(0).boundingBox();
+      const second = await cards.nth(1).boundingBox();
+      expect(second.y).toBeGreaterThanOrEqual(first.y + first.height - 1);
+    }
+
     expect(await noHorizontalOverflow(page)).toBe(true);
   });
 });

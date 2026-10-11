@@ -13,11 +13,16 @@
 // partial or failed runs, and records whose provenance is missing or ambiguous are excluded
 // and counted, never shown.
 //
-// The payload accepts one optional field: { limit }. It is clamped server-side.
+// The payload accepts two optional fields. { limit } is clamped server-side. { development_id }
+// asks for exactly one development by its stable identifier - the same identifier the list
+// returns - and is answered through the same provenance and evidence checks; an identifier that
+// is unknown, ambiguous or ineligible comes back as found: false with a reason, never as a
+// partial record and never through an analysis entity.
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.52';
 import {
-  FEED_DISCLOSURE, FEED_LIMIT_DEFAULT, FEED_LIMIT_MAX, FEED_ORDERING, clampLimit, loadFeedInputs, resolveFeed,
+  FEED_DISCLOSURE, FEED_LIMIT_DEFAULT, FEED_LIMIT_MAX, FEED_ORDERING, clampLimit, loadFeedInputs,
+  resolveDevelopment, resolveFeed,
 } from '../../shared/devFeed.ts';
 import { sanitizeMessage } from '../../shared/modelAdapters.ts';
 
@@ -28,6 +33,31 @@ export default async function (req) {
 
     const base44 = createClientFromRequest(req);
     const limit = clampLimit(payload.limit);
+    const developmentId = String(payload.development_id || '').trim();
+
+    // Detail lookup: one development, resolved through the same provenance and evidence checks
+    // the list applies. An unknown, ambiguous or ineligible identifier is answered as
+    // unavailable rather than by reaching for an administrator-only analysis entity.
+    if (developmentId) {
+      const detailInputs = await loadFeedInputs(base44.asServiceRole.entities, { limit, developmentId });
+      const detail = resolveDevelopment({ ...detailInputs, developmentId });
+      return Response.json({
+        ok: true,
+        feed: 'accepted-development-feed',
+        public: true,
+        read_only: true,
+        detail_requested: true,
+        found: detail.ok === true,
+        model_calls: 0,
+        writes: 0,
+        reason_code: detail.ok ? '' : detail.reason_code,
+        reason: detail.ok ? '' : detail.reason,
+        independent_verification: 'not_performed',
+        disclosure: FEED_DISCLOSURE,
+        count: detail.ok ? 1 : 0,
+        development: detail.ok ? detail.item : null,
+      });
+    }
 
     const inputs = await loadFeedInputs(base44.asServiceRole.entities, { limit });
     const feed = resolveFeed({ ...inputs, limit });

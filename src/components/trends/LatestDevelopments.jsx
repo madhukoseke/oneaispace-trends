@@ -1,14 +1,15 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import SectionHeading from "./SectionHeading";
-import DevelopmentRow from "./DevelopmentRow";
+import DevelopmentCard from "./DevelopmentCard";
 
-function RowsSkeleton() {
+function CardsSkeleton() {
   return (
-    <div className="mt-2 divide-y divide-border/60 border-y border-border/60" aria-hidden="true">
+    <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
       {[0, 1, 2].map((key) => (
-        <div key={key} className="space-y-2 py-3">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-4 w-3/4" />
+        <div key={key} className="space-y-2.5 rounded-[11px] border border-border/70 bg-card p-4">
+          <Skeleton className="h-3 w-28" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-3 w-4/5" />
           <Skeleton className="h-3 w-1/2" />
         </div>
       ))}
@@ -27,7 +28,7 @@ export default function LatestDevelopments({ items, loading, error, onRetry }) {
   if (!loading && !error && !items.length) return null;
 
   return (
-    <section className="mt-5 border-t border-border/70 pt-4" aria-labelledby="latest-developments">
+    <section className="mt-8 border-t border-border/70 pt-5" aria-labelledby="latest-developments">
       <SectionHeading
         id="latest-developments"
         title="Latest Developments"
@@ -35,12 +36,9 @@ export default function LatestDevelopments({ items, loading, error, onRetry }) {
       />
 
       {loading ? (
-        <RowsSkeleton />
+        <CardsSkeleton />
       ) : error ? (
-        <div
-          role="status"
-          className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-y border-border/60 py-3"
-        >
+        <div role="status" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
           <p className="text-[13px] text-muted-foreground">Developments temporarily unavailable.</p>
           <button
             type="button"
@@ -51,9 +49,11 @@ export default function LatestDevelopments({ items, loading, error, onRetry }) {
           </button>
         </div>
       ) : (
-        <ul className="mt-2 divide-y divide-border/60 border-y border-border/60">
+        <ul className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {items.map((item) => (
-            <DevelopmentRow key={item.development_id} item={item} />
+            <li key={item.development_id} className="h-full">
+              <DevelopmentCard item={item} />
+            </li>
           ))}
         </ul>
       )}

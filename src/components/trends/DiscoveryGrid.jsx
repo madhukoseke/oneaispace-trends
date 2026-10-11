@@ -1,11 +1,11 @@
 import { Button } from "@/components/ui/button";
-import ItemCard from "./cards/ItemCard";
+import SourceCard from "./cards/SourceCard";
 import { DiscoveryEmpty, DiscoveryError, DiscoverySkeleton } from "./DiscoveryStates";
 
 // Aligned grid, no masonry: three columns on a wide desktop, two at
 // intermediate widths, one on mobile. Cards keep their own height.
 export default function DiscoveryGrid({
-  items, loading, error, hasMore, onLoadMore, onReset, onRetry, contextFor, emptyHint, emptyTitle, emptyAction,
+  items, loading, error, hasMore, onLoadMore, onReset, onRetry, emptyHint, emptyTitle, emptyAction,
 }) {
   if (error) return <DiscoveryError onRetry={onRetry} />;
   if (loading && !items.length) return <DiscoverySkeleton />;
@@ -24,7 +24,7 @@ export default function DiscoveryGrid({
     <div className="space-y-6">
       <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {items.map((item) => (
-          <ItemCard key={item.id} item={item} context={contextFor ? contextFor(item) : ""} />
+          <SourceCard key={item.id} item={item} />
         ))}
       </div>
 

@@ -10,6 +10,7 @@ export function escapeRegex(value) {
 export function readDiscovery(params) {
   return {
     q: (params.get("q") || "").trim(),
+    category: params.get("category") || "all",
     format: params.get("format") || "all",
     source: params.get("source") || "all",
     sort: params.get("sort") || "trending",
@@ -28,9 +29,17 @@ export function scopeQuery({ q } = {}) {
   return query;
 }
 
+// A trend surface narrows to one trend; a category narrows to the trends that category
+// maps onto, which is the same stored field used either way.
+export function trendFilter(scope) {
+  if (scope.trendSlug) return { trend_slug: scope.trendSlug };
+  if (Array.isArray(scope.trendSlugs) && scope.trendSlugs.length) return { trend_slug: { $in: scope.trendSlugs } };
+  return {};
+}
+
 export function itemQuery(scope, state) {
   const query = scopeQuery({ q: state.q });
-  if (scope.trendSlug) query.trend_slug = scope.trendSlug;
+  Object.assign(query, trendFilter(scope));
   if (scope.topicSlug) query.topic_slug = scope.topicSlug;
   if (state.format !== "all") query.format = state.format;
   if (state.source !== "all") query.source = state.source;

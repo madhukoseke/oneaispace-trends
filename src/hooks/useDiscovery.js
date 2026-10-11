@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { PAGE_SIZE } from "@/lib/trends";
-import { itemQuery, nextParams, readDiscovery, scopeQuery } from "@/lib/discovery";
+import { itemQuery, nextParams, readDiscovery, scopeQuery, trendFilter } from "@/lib/discovery";
+import { categorySlugs } from "@/lib/categories";
 
 const ITEM_FIELDS = [
   "title", "excerpt", "canonical_url", "source", "source_key", "format", "creator",
@@ -21,10 +22,17 @@ export default function useDiscovery({ trendSlug = null } = {}) {
   const [version, setVersion] = useState(0);
 
   const tagKey = state.tags.join(",");
-  const scope = { trendSlug, topicSlug: state.topic };
+  // A trend surface passes one slug; the homepage passes none and the selected category
+  // supplies the slugs instead. Both end in the same stored trend_slug field.
+  const slugKey = (trendSlug ? [trendSlug] : categorySlugs(state.category)).join(",");
+  const scope = {
+    trendSlug,
+    trendSlugs: trendSlug ? [] : (slugKey ? slugKey.split(",") : []),
+    topicSlug: state.topic,
+  };
   const query = useMemo(
     () => itemQuery(scope, state),
-    [trendSlug, state.topic, state.q, state.format, state.source, tagKey]
+    [slugKey, trendSlug, state.topic, state.q, state.format, state.source, tagKey]
   );
 
   useEffect(() => {
@@ -50,8 +58,8 @@ export default function useDiscovery({ trendSlug = null } = {}) {
   // Facets describe the scope being browsed (trend, topic, search), so only
   // formats and sources that actually exist there are ever offered.
   const facetQuery = useMemo(
-    () => ({ ...scopeQuery({ q: state.q }), ...(trendSlug ? { trend_slug: trendSlug } : {}), ...(state.topic ? { topic_slug: state.topic } : {}) }),
-    [trendSlug, state.topic, state.q]
+    () => ({ ...scopeQuery({ q: state.q }), ...trendFilter(scope), ...(state.topic ? { topic_slug: state.topic } : {}) }),
+    [slugKey, trendSlug, state.topic, state.q]
   );
 
   useEffect(() => {
