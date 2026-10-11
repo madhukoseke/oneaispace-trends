@@ -1138,10 +1138,19 @@ export async function runSuite({ db, base44, runId }) {
       claimsByRun: { run_detail_dry: liveClaimsFixture() },
       developmentId: 'dev_detail_dry',
     });
-    const noEvidence = resolveDevelopment({
-      developments: [liveDevelopmentFixture({ development_id: 'dev_detail_noquote', run_id: 'run_detail_noquote', claim_ids: [] })],
+    // A verified quote the development does not list is not its evidence, and a run holding no
+    // verified quote at all leaves the development without one: both are refusals, each with its
+    // own reason.
+    const unlistedQuote = resolveDevelopment({
+      developments: [liveDevelopmentFixture({ development_id: 'dev_detail_unlisted', run_id: 'run_detail_unlisted', claim_ids: [] })],
+      runsById: { run_detail_unlisted: liveRunFixture({ run_id: 'run_detail_unlisted' }) },
+      claimsByRun: { run_detail_unlisted: liveClaimsFixture() },
+      developmentId: 'dev_detail_unlisted',
+    });
+    const noQuote = resolveDevelopment({
+      developments: [liveDevelopmentFixture({ development_id: 'dev_detail_noquote', run_id: 'run_detail_noquote' })],
       runsById: { run_detail_noquote: liveRunFixture({ run_id: 'run_detail_noquote' }) },
-      claimsByRun: { run_detail_noquote: liveClaimsFixture() },
+      claimsByRun: { run_detail_noquote: [] },
       developmentId: 'dev_detail_noquote',
     });
     return {
@@ -1153,11 +1162,13 @@ export async function runSuite({ db, base44, runId }) {
         && duplicate.ok === false && duplicate.reason_code === 'duplicate_development_id'
         && fixture.ok === false && fixture.reason_code === 'parent_run_is_suite_fixture'
         && dryRun.ok === false && dryRun.reason_code === 'parent_run_was_a_dry_run'
-        && noEvidence.ok === false && noEvidence.reason_code === 'missing_evidence_quote',
+        && unlistedQuote.ok === false && unlistedQuote.reason_code === 'evidence_source_not_in_development'
+        && noQuote.ok === false && noQuote.reason_code === 'missing_evidence_quote',
       note: {
         found: found.ok, unknown: unknown.reason_code, blank: blank.reason_code,
         duplicate: duplicate.reason_code, suite_fixture: fixture.reason_code,
-        dry_run: dryRun.reason_code, missing_evidence: noEvidence.reason_code,
+        dry_run: dryRun.reason_code, unlisted_quote: unlistedQuote.reason_code,
+        no_quote: noQuote.reason_code,
       },
     };
   });

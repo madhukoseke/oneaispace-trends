@@ -1,5 +1,5 @@
 /**
- * OneAISpace Trends - external acceptance test (Phase 4B premium UI).
+ * OneAISpace Trends — external acceptance test (Phase 4B premium UI).
  *
  * Playwright cannot run inside the Base44 sandbox (no browser automation is
  * installed there), so this spec is meant to be run externally against a
@@ -187,7 +187,6 @@ test.describe("explore AI", () => {
     await page.getByRole("button", { name: /^Filters/ }).click();
     await page.getByLabel("Filter by source").click();
     const option = page.getByRole("option").nth(1);
-    const source = (await option.innerText()).trim();
     await option.click();
     await expect(page).toHaveURL(/source=/);
     await page.getByLabel("Search item titles").fill("a");
