@@ -31,8 +31,6 @@ export const githubProvider = {
           format: "project",
           creator: repo.owner ? repo.owner.login : "",
           published_at: repo.pushed_at || repo.created_at,
-          thumbnail_url: `https://opengraph.githubassets.com/1/${repo.full_name}`,
-          media_kind: "landscape",
           metric_label: "stars",
           metric_value: Number(repo.stargazers_count) || 0,
           metrics: {

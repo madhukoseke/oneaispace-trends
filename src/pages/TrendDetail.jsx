@@ -6,9 +6,11 @@ import FormatTabs from "@/components/trends/FormatTabs";
 import DiscoveryToolbar from "@/components/trends/DiscoveryToolbar";
 import DiscoveryGrid from "@/components/trends/DiscoveryGrid";
 import { DiscoverySkeleton } from "@/components/trends/DiscoveryStates";
+import TrendNotes from "@/components/trends/analysis/TrendNotes";
 import useDiscovery from "@/hooks/useDiscovery";
 import { useTrendDetail } from "@/hooks/useTrends";
 import useIngestStatus from "@/hooks/useIngestStatus";
+import useTrendSignals from "@/hooks/useTrendSignals";
 
 function UnknownTrend() {
   return (
@@ -38,6 +40,7 @@ export default function TrendDetail() {
   const { trend, topics, loading: trendLoading, notFound } = useTrendDetail(slug);
   const { state, update, reset, loadMore, facets, items, total, loading, error, hasMore, tagQuery } = useDiscovery({ trendSlug: slug });
   const run = useIngestStatus();
+  const signals = useTrendSignals(slug);
 
   if (notFound && !trendLoading) return <UnknownTrend />;
 
@@ -54,6 +57,13 @@ export default function TrendDetail() {
             trend={trend}
             sourceCount={(facets.sources || []).length}
             run={run}
+          />
+
+          <TrendNotes
+            trend={trend}
+            topics={topics}
+            signals={signals.items}
+            sources={signals.sources}
           />
 
           <div className="mt-3 space-y-2 border-b border-border/70 pb-3">

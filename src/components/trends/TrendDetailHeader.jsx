@@ -1,11 +1,15 @@
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
-import { momentumLabel } from "@/lib/trends";
+import EvidenceStatus from "./EvidenceStatus";
+import { momentumLabel, relativeTime } from "@/lib/trends";
 
-// Compact trend identity plus the provenance it actually has: how much it holds,
-// how fresh that content is, and which sources it came from.
+// Compact trend identity plus what is actually known about it: how much it holds,
+// which sources it came from, whether momentum is measured at all, that evidence
+// has not been evaluated, and when the catalogue last refreshed. A trend score is
+// only shown when one exists, and none does yet.
 export default function TrendDetailHeader({ trend, sourceCount, run }) {
   const momentum = momentumLabel(trend.momentum);
+  const refreshed = run && run.finished_at ? relativeTime(run.finished_at) : "";
 
   return (
     <header>
@@ -42,10 +46,12 @@ export default function TrendDetailHeader({ trend, sourceCount, run }) {
               <span title={trend.momentum_basis || ""}>{momentum}</span>
             </>
           ) : null}
-          {run && run.finished_at ? (
+          <span aria-hidden="true">·</span>
+          <EvidenceStatus />
+          {refreshed ? (
             <>
               <span aria-hidden="true">·</span>
-              <span>Unverified catalogue</span>
+              <span>Updated {refreshed}</span>
             </>
           ) : null}
         </p>

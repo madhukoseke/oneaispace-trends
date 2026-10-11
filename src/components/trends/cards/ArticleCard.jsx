@@ -24,7 +24,7 @@ export default function ArticleCard({ item, context }) {
         </a>
       </SourceMedia>
 
-      <div className="flex min-h-0 flex-1 flex-col px-3.5 pt-3">
+      <div className="px-3.5 pt-3">
         <CardKicker item={item} context={context} />
         <CardTitle item={item} className="mt-1.5" />
         <VerificationLabel item={item} className="mt-2" />

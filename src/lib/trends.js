@@ -43,6 +43,13 @@ export function relativeTime(value) {
   return `${Math.floor(days / 365)}y ago`;
 }
 
+// Absolute publication date, for records whose exact day matters.
+export function shortDate(value) {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return "";
+  return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 export function formatCount(value) {
   const number = Number(value) || 0;
   if (number < 1000) return String(number);

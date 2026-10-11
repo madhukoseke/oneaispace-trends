@@ -10,7 +10,7 @@ import { metricText, relativeTime } from "@/lib/trends";
 export default function TextPostCard({ item, context }) {
   return (
     <CardShell>
-      <div className="flex min-h-0 flex-1 flex-col px-3.5 pt-3.5">
+      <div className="px-3.5 pt-3.5">
         <CardKicker item={item} context={context} />
         <CardTitle item={item} className="mt-1.5 line-clamp-3" />
         <VerificationLabel item={item} className="mt-2" />
