@@ -66,7 +66,12 @@ export default function Trends() {
         trendNames={trendNames}
       />
 
-      <LatestDevelopments items={developments.items} loading={developments.loading} />
+      <LatestDevelopments
+        items={developments.items}
+        loading={developments.loading}
+        error={developments.error}
+        onRetry={developments.reload}
+      />
 
       <section className="mt-5 border-t border-border/70 pt-4" aria-labelledby="all-content">
         <SectionHeading id="all-content" title="All Content" />
