@@ -1,0 +1,129 @@
+{
+  "name": "Item",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "excerpt": {
+      "type": "string"
+    },
+    "canonical_url": {
+      "type": "string"
+    },
+    "canonical_key": {
+      "type": "string"
+    },
+    "title_key": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "source_key": {
+      "type": "string"
+    },
+    "format": {
+      "type": "string",
+      "enum": [
+        "video",
+        "project",
+        "post",
+        "article",
+        "research"
+      ]
+    },
+    "creator": {
+      "type": "string"
+    },
+    "published_at": {
+      "type": "string"
+    },
+    "thumbnail_url": {
+      "type": "string"
+    },
+    "media_kind": {
+      "type": "string",
+      "enum": [
+        "landscape",
+        "portrait",
+        "none"
+      ],
+      "default": "none"
+    },
+    "duration_seconds": {
+      "type": "number"
+    },
+    "metric_label": {
+      "type": "string"
+    },
+    "metric_value": {
+      "type": "number"
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "verification": {
+      "type": "string",
+      "enum": [
+        "unverified",
+        "reported",
+        "confirmed"
+      ],
+      "default": "unverified"
+    },
+    "claim_uncertain": {
+      "type": "boolean",
+      "default": false
+    },
+    "provenance_url": {
+      "type": "string"
+    },
+    "provenance_label": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "trend_slug": {
+      "type": "string"
+    },
+    "topic_slug": {
+      "type": "string"
+    },
+    "score": {
+      "type": "number",
+      "default": 0
+    },
+    "run_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "canonical_url",
+    "source",
+    "format"
+  ],
+  "rls": {
+    "read": {},
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

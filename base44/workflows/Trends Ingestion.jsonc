@@ -1,0 +1,47 @@
+{
+  "name": "Trends Ingestion",
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "trends_ingestion",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "run_ingestion": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "ingestTrends",
+            "args": {
+              "trigger_source": "schedule"
+            }
+          },
+          "then": "end",
+          "x-base44": {
+            "title": "Ingest AI sources",
+            "description": "arXiv, Hacker News, GitHub, lab blogs"
+          }
+        }
+      }
+    ]
+  },
+  "description": "Runs the Trends source ingestion every six hours so the catalogue stays current without any work during a page view.",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "0 */6 * * *",
+      "one_time_date": null,
+      "timezone": "UTC",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "Save",
+  "type": "object",
+  "properties": {
+    "item_id": {
+      "type": "string"
+    },
+    "item_title": {
+      "type": "string"
+    },
+    "item_url": {
+      "type": "string"
+    },
+    "item_source": {
+      "type": "string"
+    },
+    "item_format": {
+      "type": "string"
+    },
+    "item_thumbnail_url": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "item_id"
+  ],
+  "rls": {
+    "read": {
+      "created_by_id": "{{user.id}}"
+    },
+    "create": {
+      "created_by_id": "{{user.id}}"
+    },
+    "update": {
+      "created_by_id": "{{user.id}}"
+    },
+    "delete": {
+      "created_by_id": "{{user.id}}"
+    }
+  }
+}
