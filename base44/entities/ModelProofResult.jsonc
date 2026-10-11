@@ -1,0 +1,148 @@
+{
+  "name": "ModelProofResult",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "type": "string"
+    },
+    "stage": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "model_role": {
+      "type": "string",
+      "enum": [
+        "A",
+        "B"
+      ]
+    },
+    "requested_model": {
+      "type": "string"
+    },
+    "resolved_model": {
+      "type": "string"
+    },
+    "task": {
+      "type": "string"
+    },
+    "task_kind": {
+      "type": "string",
+      "enum": [
+        "extraction",
+        "support_evaluation"
+      ]
+    },
+    "transport": {
+      "type": "string",
+      "enum": [
+        "live",
+        "stub"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "failed",
+        "timed_out",
+        "invalid_provider",
+        "invalid_model",
+        "blocked"
+      ]
+    },
+    "latency_ms": {
+      "type": "number"
+    },
+    "timeout_ms": {
+      "type": "number"
+    },
+    "dispatches": {
+      "type": "number",
+      "default": 0
+    },
+    "input_item_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "input_chars": {
+      "type": "number",
+      "default": 0
+    },
+    "source_refs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "output": {
+      "type": "object"
+    },
+    "output_validation": {
+      "type": "object"
+    },
+    "grounding": {
+      "type": "object"
+    },
+    "evaluation_states": {
+      "type": "object"
+    },
+    "usage_available": {
+      "type": "boolean",
+      "default": false
+    },
+    "usage": {
+      "type": "object"
+    },
+    "cost_known": {
+      "type": "boolean",
+      "default": false
+    },
+    "cost": {
+      "type": "object"
+    },
+    "error_category": {
+      "type": "string"
+    },
+    "error_summary": {
+      "type": "string"
+    },
+    "recorded_at": {
+      "type": "string"
+    },
+    "retention_days": {
+      "type": "number",
+      "default": 30
+    }
+  },
+  "required": [
+    "run_id",
+    "provider",
+    "requested_model"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

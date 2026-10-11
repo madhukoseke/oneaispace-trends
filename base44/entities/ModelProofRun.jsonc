@@ -1,0 +1,158 @@
+{
+  "name": "ModelProofRun",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "type": "string"
+    },
+    "stage": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "live",
+        "contract",
+        "review",
+        "purge"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "running",
+        "success",
+        "partial",
+        "failed",
+        "blocked",
+        "duplicate"
+      ]
+    },
+    "trigger": {
+      "type": "string"
+    },
+    "operator_id": {
+      "type": "string"
+    },
+    "operator_role": {
+      "type": "string"
+    },
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requested_models": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "resolved_models": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "model_calls": {
+      "type": "number",
+      "default": 0
+    },
+    "calls_per_provider": {
+      "type": "object"
+    },
+    "input_item_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "input_record_count": {
+      "type": "number",
+      "default": 0
+    },
+    "input_chars": {
+      "type": "number",
+      "default": 0
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "finished_at": {
+      "type": "string"
+    },
+    "duration_ms": {
+      "type": "number"
+    },
+    "usage_available": {
+      "type": "boolean",
+      "default": false
+    },
+    "usage": {
+      "type": "object"
+    },
+    "cost_known": {
+      "type": "boolean",
+      "default": false
+    },
+    "cost": {
+      "type": "object"
+    },
+    "cost_estimate_basis": {
+      "type": "string"
+    },
+    "estimated_spend_usd": {
+      "type": "number"
+    },
+    "spend_ceiling_usd": {
+      "type": "number"
+    },
+    "error_category": {
+      "type": "string"
+    },
+    "error_summary": {
+      "type": "string"
+    },
+    "tests": {
+      "type": "object"
+    },
+    "deleted_records": {
+      "type": "number",
+      "default": 0
+    },
+    "retention_days": {
+      "type": "number",
+      "default": 30
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "action"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
