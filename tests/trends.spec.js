@@ -58,6 +58,31 @@ test.describe("homepage hierarchy", () => {
     }
   });
 
+  test("latest developments stands down while the catalogue is narrowed", async ({ page }) => {
+    const section = page.locator('section[aria-labelledby="latest-developments"]');
+
+    await page.goto(TRENDS);
+    if (!(await section.count())) return; // nothing eligible: the section is not rendered at all
+
+    await page
+      .getByRole("navigation", { name: "Browse by category" })
+      .getByRole("button", { name: "Models", exact: true })
+      .click();
+    await expect(section).toHaveCount(0);
+
+    await page.goto(TRENDS);
+    await page.getByRole("tab", { name: /Articles/ }).click();
+    await expect(section).toHaveCount(0);
+
+    await page.goto(TRENDS);
+    await page.getByLabel("Search item titles").fill("agent");
+    await expect(section).toHaveCount(0);
+
+    // Clearing the narrowing brings it back.
+    await page.goto(TRENDS);
+    await expect(section).toBeVisible();
+  });
+
   test("results start high on the page and nothing overflows sideways", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(TRENDS);

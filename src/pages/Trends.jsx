@@ -54,6 +54,16 @@ export default function Trends() {
     [update]
   );
 
+  // The catalogue is narrowed by a search, a category or any Explore filter. Sort order and
+  // page are not narrowing, so they leave the section alone.
+  const narrowed =
+    Boolean(state.q) ||
+    state.category !== "all" ||
+    state.format !== "all" ||
+    state.source !== "all" ||
+    state.tags.length > 0 ||
+    Boolean(state.topic);
+
   return (
     <div className="mx-auto max-w-[1440px] px-4 pb-12 pt-6 sm:px-6 lg:px-10">
       <DiscoverHero
@@ -68,6 +78,7 @@ export default function Trends() {
       </div>
 
       <LatestDevelopments
+        hidden={narrowed}
         items={developments.items}
         loading={developments.loading}
         error={developments.error}

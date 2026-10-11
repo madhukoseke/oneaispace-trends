@@ -23,7 +23,10 @@ function CardsSkeleton() {
 // excluded by the feed itself, so nothing here filters or re-ranks. When the feed returns
 // nothing the section is not rendered at all; when the request fails it says so and offers a
 // retry, so an unavailable feed can never be mistaken for an empty one.
-export default function LatestDevelopments({ items, loading, error, onRetry }) {
+export default function LatestDevelopments({ items, loading, error, onRetry, hidden = false }) {
+  // While the catalogue is narrowed the section stands down: it is the unfiltered view of what
+  // is new, and it would otherwise sit above a filtered result set as though it belonged to it.
+  if (hidden) return null;
   // Nothing eligible and nothing wrong: the section stays out of the page entirely.
   if (!loading && !error && !items.length) return null;
 
