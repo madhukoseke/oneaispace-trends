@@ -44,8 +44,8 @@ import {
   EVIDENCE_CONCEPTS, estimateCostFromCalls, evaluateProofCriteria, normalizeForMatch, quoteMatchInRecord,
 } from '../../shared/modelProofCriteria.ts';
 import {
-  buildRunRecord, claimAuthorization, findAnchors, findRunById, listResults, listRuns, persistResults, persistRun,
-  reserveCallSlot, scanForSecrets, updateRun,
+  RETENTION_NOTE, buildRunRecord, claimAuthorization, findAnchors, findRunById, listResults, listRuns, persistResults,
+  persistRun, reserveCallSlot, scanForSecrets, updateRun,
 } from '../../shared/modelProofTrace.ts';
 
 const EXTRACTION_SCHEMA = {
@@ -530,6 +530,77 @@ async function runContractSuite(deps, db, runId, reserve) {
         defaults: { claim_state: readBack && readBack.claim_state, slot_a: readBack && readBack.call_slot_a, slot_b: readBack && readBack.call_slot_b },
       },
     };
+  });
+
+  // --- persistence lifecycle: create -> update -> read -> list. A run's identity
+  // fields carry no schema default, so each exists only because a write put it
+  // there. These cases create their records from a bare seed on purpose: that is
+  // the shape the claim path passes, and the shape that used to lose the run's
+  // stage, spend ceiling and retention note.
+  const bareSeed = (id) => ({ run_id: id, action: 'contract', status: 'running', authorization_id: id, notes: 'persistence lifecycle case' });
+  const identityFieldsOk = (row) => Boolean(row
+    && row.stage === PROOF_CONFIG.stage
+    && row.spend_ceiling_usd === PROOF_CONFIG.spend_ceiling_usd
+    && row.retention_note === RETENTION_NOTE
+    && row.retention_days === PROOF_CONFIG.retention_days
+    && row.trigger === 'manual');
+
+  await record('persistence.persist_run_stamps_identity_fields', async () => {
+    const id = `${runId}-persist-create`;
+    const created = await persistRun(db, bareSeed(id));
+    const back = await findRunById(db, id);
+    return {
+      ok: identityFieldsOk(back) && back.id === created.id,
+      note: { stage: back && back.stage, spend_ceiling_usd: back && back.spend_ceiling_usd, retention_note_present: Boolean(back && back.retention_note) },
+    };
+  });
+
+  await record('persistence.claim_created_run_carries_identity_fields', async () => {
+    const id = `${runId}-persist-claim`;
+    const claim = await claimAuthorization(db, { authorizationId: id, token: `persist-claim-${runId}`, seed: bareSeed(id) });
+    const back = await findRunById(db, id);
+    return {
+      ok: claim.ok === true && identityFieldsOk(back),
+      note: { claim: claim.reason, identity_ok: identityFieldsOk(back), stage: back && back.stage, spend_ceiling_usd: back && back.spend_ceiling_usd },
+    };
+  });
+
+  await record('persistence.identity_fields_survive_claim_and_slot_updates', async () => {
+    const id = `${runId}-persist-slot`;
+    const claim = await claimAuthorization(db, { authorizationId: id, token: `persist-slot-${runId}`, seed: bareSeed(id) });
+    if (!claim.ok) return { ok: false, note: { refused: claim.reason } };
+    const slot = await reserveCallSlot(db, claim.anchor.id, 'a', 'persistence-probe');
+    const back = await findRunById(db, id);
+    return {
+      ok: slot.ok === true && identityFieldsOk(back) && back.claim_state === 'consumed' && back.call_slot_a === 'persistence-probe',
+      note: { slot_updated: slot.updated, claim: claim.reason, claim_state: back && back.claim_state, slot_a: back && back.call_slot_a, identity_ok: identityFieldsOk(back) },
+    };
+  });
+
+  await record('persistence.run_stays_listed_after_updates', async () => {
+    const id = `${runId}-persist-list`;
+    const claim = await claimAuthorization(db, { authorizationId: id, token: `persist-list-${runId}`, seed: bareSeed(id) });
+    if (!claim.ok) return { ok: false, note: { refused: claim.reason } };
+    await reserveCallSlot(db, claim.anchor.id, 'b', 'persistence-probe');
+    await updateRun(db, claim.anchor.id, { status: 'success', model_calls: 2, notes: 'persistence list case' });
+    const back = await findRunById(db, id);
+    const listed = await listRuns(db, 100);
+    const matches = listed.filter((row) => row.run_id === id);
+    const everyListedRowCarriesStage = listed.every((row) => row.stage === PROOF_CONFIG.stage);
+    return {
+      ok: identityFieldsOk(back) && back.status === 'success' && matches.length === 1 && everyListedRowCarriesStage,
+      note: {
+        status: back && back.status, identity_ok: identityFieldsOk(back),
+        listed: listed.length, matches: matches.length, every_listed_row_carries_stage: everyListedRowCarriesStage,
+      },
+    };
+  });
+
+  await record('persistence.result_rows_carry_their_runs_stage', async () => {
+    const id = `${runId}-persist-result`;
+    await persistResults(db, [{ run_id: id, provider: 'stub', requested_model: 'stub', model_role: 'A', task_kind: 'extraction', transport: 'stub', status: 'success' }]);
+    const rows = await listResults(db, id);
+    return { ok: rows.length === 1 && rows[0].stage === PROOF_CONFIG.stage, note: { rows: rows.length, stage: rows[0] && rows[0].stage } };
   });
 
   const passed = cases.filter((entry) => entry.ok).length;

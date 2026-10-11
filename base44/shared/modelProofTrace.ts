@@ -18,6 +18,20 @@
 
 import { PROOF_CONFIG } from './modelProofConfig.ts';
 
+// Retention is a recorded policy, not an implemented behaviour.
+export const RETENTION_NOTE = 'retention policy recorded as metadata only; no automatic deletion is implemented';
+
+// The fields that identify a run to the review queries. None of them carries a
+// schema default, so each one is present only because a write put it there: every
+// creation and every update re-asserts them, so a run cannot lose them and drop
+// out of the stage-filtered review list.
+export const RUN_IDENTITY_FIELDS = {
+  stage: PROOF_CONFIG.stage,
+  trigger: 'manual',
+  spend_ceiling_usd: PROOF_CONFIG.spend_ceiling_usd,
+  retention_note: RETENTION_NOTE,
+};
+
 const SECRET_VALUE_PATTERNS = [
   /sk-[A-Za-z0-9_-]{8,}/,
   /Bearer\s+[A-Za-z0-9._-]{8,}/i,
@@ -61,10 +75,8 @@ function cleanError(value) {
 
 export function buildRunRecord(fields) {
   return {
-    stage: PROOF_CONFIG.stage,
-    trigger: 'manual',
+    ...RUN_IDENTITY_FIELDS,
     retention_days: PROOF_CONFIG.retention_days,
-    spend_ceiling_usd: PROOF_CONFIG.spend_ceiling_usd,
     call_budget_per_provider: PROOF_CONFIG.max_calls_per_provider,
     call_budget_total: PROOF_CONFIG.max_calls_total,
     model_calls: 0,
@@ -77,8 +89,6 @@ export function buildRunRecord(fields) {
     usage_available: false,
     cost_known: false,
     resolved_model_available: false,
-    // Retention is a recorded policy, not an implemented behaviour.
-    retention_note: 'retention policy recorded as metadata only; no automatic deletion is implemented',
     ...fields,
   };
 }
@@ -94,17 +104,25 @@ export async function findAnchors(db, authorizationId) {
   return page.items || [];
 }
 
+// Every run record is built through buildRunRecord whatever the caller passes, so
+// no creation site can omit the run's identity fields. The claim path passes a bare
+// seed, and creating that seed directly was how a completed run lost its stage,
+// spend ceiling and retention note, which also hid it from the stage-filtered list.
 export async function persistRun(db, record) {
-  return db.ModelProofRun.create(record);
+  return db.ModelProofRun.create(buildRunRecord(record));
 }
 
+// The identity fields are re-asserted on every update, so an update can never be
+// the reason a run drops out of the review list.
 export async function updateRun(db, id, fields) {
-  return db.ModelProofRun.update(id, fields);
+  return db.ModelProofRun.update(id, { ...RUN_IDENTITY_FIELDS, ...fields });
 }
 
+// Result rows carry their run's stage, so both proof entities answer the same
+// stage-based review query.
 export async function persistResults(db, records) {
   if (!records.length) return [];
-  return db.ModelProofResult.bulkCreate(records);
+  return db.ModelProofResult.bulkCreate(records.map((row) => ({ stage: PROOF_CONFIG.stage, ...row })));
 }
 
 // Consumes the one-time authorization. Two steps, in this order:
