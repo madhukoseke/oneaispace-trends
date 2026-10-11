@@ -1,0 +1,46 @@
+{
+  "name": "ProofProbe",
+  "type": "object",
+  "properties": {
+    "token": {
+      "type": "string"
+    },
+    "authorization_id": {
+      "type": "string"
+    },
+    "claim_token": {
+      "type": "string"
+    },
+    "slots": {
+      "type": "object"
+    },
+    "note": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "token"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
