@@ -9,7 +9,9 @@
 // payload, an admin caller, and a fresh run id.
 
 export const PROOF_CONFIG = {
-  execution_enabled: true, // Stage 1: enabled only for the single capped manual proof
+  // Off by default. Stage 1 flips this on only for the single capped manual proof
+  // and back off immediately afterwards, so no recurring path can call a provider.
+  execution_enabled: false,
   stage: 'stage1-provider-proof',
   max_records: 5,
   max_calls_per_provider: 2,
