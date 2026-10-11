@@ -11,7 +11,7 @@
 
 import { CONTENT_STATES, DEV_ANALYSIS_CONFIG, RELEASE_VERBS } from './devAnalysisConfig.ts';
 import {
-  familyTokens, numericDesignatorTokens, researchArtifactTokens, versionedTokens,
+  familyTokens, numericDesignatorTokens, researchArtifactTokens, researchEvidenceOf, versionedTokens,
 } from './devAnalysisGrouping.ts';
 import { normalizeForMatch } from './modelProofCriteria.ts';
 import { cleanExcerpt, stripHtml } from './normalize.ts';
@@ -344,13 +344,20 @@ export async function runCalibrationSuite() {
   await record('research.dex_one2many_recognised_from_its_research_title', async () => {
     const paper = calibrateSourceRecord(dexOne2Many());
     const news = calibrateSourceRecord(dexAsNews());
+    // The research-level refusal for the same title taken from a news source: the title pattern is
+    // only applied to a record stored as research, so this one is refused for what it lacks.
+    const newsResearch = researchEvidenceOf(dexAsNews().title, [dexAsNews().excerpt], { format: 'article' });
     return {
       ok: paper.analysis_eligible === true && paper.event_type === 'research_contribution'
         && paper.reason_code === 'title_names_artefact_and_contribution_subtitle'
-        && news.analysis_eligible === false && news.reason_code === 'no_publication_language',
+        && news.analysis_eligible === false && news.event_type === 'other'
+        && newsResearch.eligible === false && newsResearch.reason_code === 'no_publication_language',
       note: {
         stored_as_research: { eligible: paper.analysis_eligible, reason_code: paper.reason_code },
-        same_title_from_a_news_source: { eligible: news.analysis_eligible, reason_code: news.reason_code },
+        same_title_from_a_news_source: {
+          eligible: news.analysis_eligible, event_type: news.event_type,
+          research_reason_code: newsResearch.reason_code,
+        },
       },
     };
   });
@@ -427,14 +434,22 @@ export async function runCalibrationSuite() {
     const question = classifyEvent(commentaryQuestion());
     const interview = classifyEvent(commentaryInterview());
     const survey = calibrateSourceRecord(genericSurvey());
+    // The research-level refusal: format words without a contribution are not a contribution.
+    const surveyResearch = researchEvidenceOf(genericSurvey().title, [genericSurvey().excerpt], {
+      format: 'research', source_key: 'arxiv',
+    });
     return {
       ok: question.event_type === 'analysis_commentary' && question.analysis_eligible === false
         && interview.event_type === 'analysis_commentary' && interview.analysis_eligible === false
-        && survey.analysis_eligible === false && survey.reason_code === 'no_contribution_language',
+        && survey.analysis_eligible === false && survey.event_type === 'other'
+        && surveyResearch.eligible === false && surveyResearch.reason_code === 'no_contribution_language',
       note: {
         question_naming_a_version: { eligible: question.analysis_eligible, event_type: question.event_type },
         interview: { eligible: interview.analysis_eligible, event_type: interview.event_type },
-        generic_research_article: { eligible: survey.analysis_eligible, reason_code: survey.reason_code },
+        generic_research_article: {
+          eligible: survey.analysis_eligible, event_type: survey.event_type,
+          research_reason_code: surveyResearch.reason_code,
+        },
       },
     };
   });
@@ -478,17 +493,23 @@ export async function runCalibrationSuite() {
     const stillFalse = rows.filter((row) => !row.before && !row.after).map((row) => row.id).sort();
     const expectedGained = ['itm_dex', 'itm_mille', 'itm_rubric'];
     const expectedLost = ['itm_ecology', 'itm_question'];
+    const expectedStillEligible = [
+      'itm_asana', 'itm_dreamtrue', 'itm_gpt61', 'itm_lightning', 'itm_merit', 'itm_quine',
+      'itm_repo_rel', 'itm_titleonly',
+    ];
+    const expectedStillIneligible = ['itm_collab', 'itm_hiring', 'itm_interview', 'itm_notext', 'itm_repo'];
     return {
       ok: JSON.stringify(gained) === JSON.stringify(expectedGained)
         && JSON.stringify(lost) === JSON.stringify(expectedLost)
-        && byId.itm_quine.after === true && byId.itm_merit.after === true
-        && byId.itm_dreamtrue.after === true && byId.itm_gpt61.after === true
+        && JSON.stringify(stillTrue) === JSON.stringify(expectedStillEligible)
+        && JSON.stringify(stillFalse) === JSON.stringify(expectedStillIneligible)
         && byId.itm_asana.event_type === 'adoption_case_study'
         && byId.itm_gpt61.event_type === 'model_release'
         && byId.itm_question.event_type === 'analysis_commentary'
         && byId.itm_ecology.event_type === 'other'
-        && byId.itm_repo.after === false && byId.itm_hiring.after === false
-        && stillTrue.length === 8 && stillFalse.length === 6,
+        && byId.itm_lightning.event_type === 'software_release'
+        && byId.itm_repo_rel.event_type === 'software_release'
+        && byId.itm_repo.after === false && byId.itm_hiring.after === false,
       note: {
         before_eligible: rows.filter((row) => row.before).length,
         after_eligible: rows.filter((row) => row.after).length,
