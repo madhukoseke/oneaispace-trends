@@ -32,7 +32,6 @@ export default function LatestDevelopments({ items, loading, error, onRetry }) {
       <SectionHeading
         id="latest-developments"
         title="Latest Developments"
-        note={items.length ? "Accepted developments from sources already stored here, newest first" : ""}
       />
 
       {loading ? (
@@ -57,6 +56,13 @@ export default function LatestDevelopments({ items, loading, error, onRetry }) {
           ))}
         </ul>
       )}
+
+      {/* The note about what these cards are sits with them, below them, rather than above. */}
+      {!loading && !error && items.length ? (
+        <p className="mt-3 text-[12px] text-muted-foreground">
+          Accepted developments from sources already stored here, newest first
+        </p>
+      ) : null}
     </section>
   );
 }
