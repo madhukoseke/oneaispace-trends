@@ -116,6 +116,9 @@
     "retention_days": {
       "type": "number",
       "default": 30
+    },
+    "retention_note": {
+      "type": "string"
     }
   },
   "required": [
@@ -139,10 +142,6 @@
         "role": "admin"
       }
     },
-    "delete": {
-      "user_condition": {
-        "role": "admin"
-      }
-    }
+    "delete": false
   }
 }

@@ -13,8 +13,7 @@
       "enum": [
         "live",
         "contract",
-        "review",
-        "purge"
+        "review"
       ]
     },
     "status": {
@@ -117,13 +116,12 @@
     "tests": {
       "type": "object"
     },
-    "deleted_records": {
-      "type": "number",
-      "default": 0
-    },
     "retention_days": {
       "type": "number",
       "default": 30
+    },
+    "retention_note": {
+      "type": "string"
     },
     "notes": {
       "type": "string"
@@ -149,10 +147,6 @@
         "role": "admin"
       }
     },
-    "delete": {
-      "user_condition": {
-        "role": "admin"
-      }
-    }
+    "delete": false
   }
 }

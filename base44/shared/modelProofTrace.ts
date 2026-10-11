@@ -2,6 +2,10 @@
 // content: runs and results live in their own two entities and are readable only
 // by admins.
 //
+// This module contains no delete and no purge operation. The 30-day retention
+// policy is recorded per run as metadata for a future, separately reviewed
+// cleanup; nothing here removes a record.
+//
 // Only what actually happened is written: a measurement the provider did not
 // return is stored as null with its availability flag false. No credentials, no
 // request headers and no full source bodies are ever persisted - sources are
@@ -59,6 +63,8 @@ export function buildRunRecord(fields) {
     // so an unavailable measurement is absent rather than invented.
     usage_available: false,
     cost_known: false,
+    // Retention is a recorded policy, not an implemented behaviour.
+    retention_note: 'retention policy recorded as metadata only; no automatic deletion is implemented',
     ...fields,
   };
 }
@@ -87,16 +93,7 @@ export async function listRuns(db, limit = 10) {
   return page.items || [];
 }
 
-// 30 days by default, overridable per call. Deletion only ever touches proof
-// records.
-export async function purgeExpired(db, retentionDays) {
-  const days = Number(retentionDays) > 0 ? Number(retentionDays) : PROOF_CONFIG.retention_days;
-  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const oldRuns = await db.ModelProofRun.filter({ stage: PROOF_CONFIG.stage, created_date: { $lt: cutoff } }, { limit: 200 });
-  const oldResults = await db.ModelProofResult.filter({ stage: PROOF_CONFIG.stage, created_date: { $lt: cutoff } }, { limit: 200 });
-  const runIds = (oldRuns.items || []).map((row) => row.id);
-  const resultIds = (oldResults.items || []).map((row) => row.id);
-  if (runIds.length) await db.ModelProofRun.deleteMany({ id: { $in: runIds } });
-  if (resultIds.length) await db.ModelProofResult.deleteMany({ id: { $in: resultIds } });
-  return { retention_days: days, cutoff, runs_deleted: runIds.length, results_deleted: resultIds.length };
-}
+// Deletion is deliberately absent from Stage 1. Nothing in this module removes a
+// record, and there is no cleanup function, schedule or admin action: each run
+// simply carries retention_days as metadata so a later stage can design retention
+// with its own review.

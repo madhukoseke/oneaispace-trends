@@ -9,7 +9,12 @@
 // ModelProofResult, which are readable only by admins.
 //
 // Actions: live (the capped proof), contract (stubbed adapter tests, zero provider
-// calls), review (compare stored proof results), purge (retention cleanup).
+// calls), review (compare stored proof results).
+//
+// No action deletes anything. There is no delete, deleteMany or purge operation
+// anywhere in this function or in the helpers it imports, so no destructive
+// database operation is reachable from the proof execution path. The retention
+// policy is recorded as metadata only and no automatic deletion is implemented.
 //
 // Integrity rules: a claim is never marked Supported because the model returned a
 // real item id. The evidence quote must be found in the stored record itself, and
@@ -18,7 +23,7 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.52';
 import { PROOF_CONFIG, PRICE_ESTIMATES_USD_PER_MTOK, ESTIMATE_TOKENS } from '../../shared/modelProofConfig.ts';
 import { callModel, MODEL_CHOICES, sanitizeMessage, categorizeError } from '../../shared/modelAdapters.ts';
 import {
-  buildRunRecord, findRunById, listResults, listRuns, persistResults, persistRun, purgeExpired, scanForSecrets,
+  buildRunRecord, findRunById, listResults, listRuns, persistResults, persistRun, scanForSecrets,
 } from '../../shared/modelProofTrace.ts';
 
 const EXTRACTION_SCHEMA = {
@@ -290,13 +295,8 @@ export default async function (req) {
       });
     }
 
-    if (action === 'purge') {
-      const purged = await purgeExpired(db, payload.retention_days);
-      return Response.json({ ok: true, action, ...purged });
-    }
-
     if (action !== 'live' && action !== 'contract') {
-      return Response.json({ ok: false, error: 'unknown action; expected live, contract, review or purge' }, { status: 400 });
+      return Response.json({ ok: false, error: 'unknown action; expected live, contract or review' }, { status: 400 });
     }
 
     const runId = clip(payload.run_id, 80);
