@@ -342,7 +342,10 @@ export function groupCandidates(items) {
     const itemIds = group.map((item) => item.id).sort();
     const tokens = sharedValues(group.map((item) => specificTokens(sourceRecordText(item))));
     const anchors = sharedValues(group.map((item) => variantAnchors(sourceRecordText(item))));
-    const titles = sharedValues([group.map((item) => titleKey(item.title))]);
+    // A group shares a title only when every record in it normalises to one identical title
+    // key. Anything else was linked by a model-and-variant anchor, and the basis says so.
+    const titleKeys = Array.from(new Set(group.map((item) => titleKey(item.title)).filter(Boolean)));
+    const titles = titleKeys.length === 1 ? titleKeys : [];
     let basis = 'single_source';
     if (itemIds.length > 1) basis = titles.length ? 'same_normalized_title' : 'same_model_and_variant';
     return {

@@ -573,6 +573,7 @@ export function buildDryRunReport({
         basis: candidate.basis,
         item_ids: candidate.item_ids,
         supporting_sources: candidate.supporting_sources,
+        shared_anchors: candidate.shared_anchors,
         shared_tokens: candidate.shared_tokens,
         all_records_thin: candidate.all_records_thin,
         identifiable_event: candidate.identifiable_event,
