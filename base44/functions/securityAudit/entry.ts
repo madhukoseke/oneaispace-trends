@@ -53,7 +53,9 @@ export default async function (req) {
         operator,
         suite: suite.suite,
         summary: { cases_run: suite.cases_run, passed: suite.passed, failed: suite.failed },
-        failing: suite.cases.filter((entry) => !entry.ok).map((entry) => ({ name: entry.name, detail: entry.detail })),
+        // Names only here: every case's own detail is in `tests` below, so a failing run stays
+        // readable instead of being truncated by its own diagnostics.
+        failing: suite.cases.filter((entry) => !entry.ok).map((entry) => entry.name),
         tests: suite,
         isolation: ISOLATION_LIMITATIONS,
         ingestion_authorization: {

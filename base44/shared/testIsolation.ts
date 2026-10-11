@@ -54,6 +54,55 @@ export const ISOLATION_LIMITATIONS = {
     'The store mirrors the entity surface the code under test uses - filter, create, bulkCreate, update, bulkUpdate, updateMany, get, list, count, delete, deleteMany - with a guarded update reporting how many rows it matched. It is a test double, so it proves the code path, never the platform\'s own concurrency behaviour.',
 };
 
+// Schema defaults, mirrored from base44/entities/*.jsonc. A production insert applies these
+// before anything reads the row back, and the guarded writes in the analysis and proof traces
+// filter on two of them - call_slot_a/call_slot_b and claim_state - so a store that omitted
+// them would refuse every compare-and-set and make a passing suite look like a failing pipeline.
+// They are declared here rather than read from disk because a backend function has no schema
+// access at runtime; the suites in this app fail loudly if this map drifts from the entities,
+// because the guarded reservations they exercise would stop reporting a match of exactly one.
+export const COLLECTION_DEFAULTS = {
+  DevAnalysisRun: {
+    claim_state: 'open', execution_flag: false, dry_run: false,
+    batch_record_cap: 10, batch_record_count: 0,
+    call_budget_per_provider: 1, call_budget_total: 2,
+    call_slot_a: 'free', call_slot_b: 'free', call_details: [],
+    model_calls: 0, provider_calls: 0,
+    usage_available: false, cost_known: false,
+    developments_accepted: 0, developments_partial: 0, developments_rejected: 0,
+    claims_accepted: 0, claims_rejected: 0, retention_days: 30,
+  },
+  DevDevelopment: {
+    analysis_eligible: false, dropped_model_identifiers: 0, supporting_sources_count: 0,
+    claims_total: 0, claims_rejected: 0, source_states_claim: false,
+    evidence_supported_by_model: false, retention_days: 30,
+  },
+  DevClaim: {
+    quote_in_record: false, quote_segments: 0, source_states_claim: false,
+    evidence_supports_claim: false, downgraded: false, citation_accepted: false, retention_days: 30,
+  },
+  DevAnalysisCache: { development_count: 0, claims_accepted: 0, model_calls: 0, retention_days: 30 },
+  ModelProofRun: {
+    claim_state: 'open', execution_flag: false,
+    call_budget_per_provider: 1, call_budget_total: 2,
+    call_slot_a: 'free', call_slot_b: 'free',
+    resolved_model_available: false, model_calls: 0,
+    input_record_count: 0, input_chars: 0, usage_available: false, cost_known: false,
+    retention_days: 30,
+  },
+  ModelProofResult: {
+    dispatches: 0, input_chars: 0, usage_available: false, cost_known: false, retention_days: 30,
+  },
+};
+
+function seedDefaults(defaults) {
+  const out = {};
+  for (const [field, value] of Object.entries(defaults || {})) {
+    out[field] = Array.isArray(value) || (value && typeof value === 'object') ? JSON.parse(JSON.stringify(value)) : value;
+  }
+  return out;
+}
+
 function matchesFilter(row, filter) {
   if (!filter || typeof filter !== 'object') return true;
   return Object.entries(filter).every(([field, condition]) => {
@@ -92,12 +141,21 @@ function project(row, fields) {
 function createCollection(name, state) {
   const rows = [];
   let sequence = 0;
+  const defaults = COLLECTION_DEFAULTS[name] || {};
   const stamp = () => new Date().toISOString();
   const copy = (row) => (row ? { ...row } : row);
 
   const api = {
     async create(data) {
-      const row = { id: `${name}_${++sequence}`, created_date: stamp(), updated_date: stamp(), ...(data || {}) };
+      // The stored row is the schema defaults, then what the caller supplied, then the
+      // platform-owned identity fields, which a caller never sets.
+      const row = {
+        ...seedDefaults(defaults),
+        ...(data || {}),
+        id: `${name}_${++sequence}`,
+        created_date: stamp(),
+        updated_date: stamp(),
+      };
       rows.push(row);
       state.operations.push({ collection: name, op: 'create' });
       state.writes.push({ collection: name, op: 'create', id: row.id });
@@ -247,9 +305,12 @@ export function createLiveCallTripwire(label = 'a backend suite') {
   const refuse = (path) => () => {
     throw new IsolationViolationError(`${label} must not reach the platform: ${path} was called, and a test makes no platform call`);
   };
-  const unreachable = (path) => new Proxy({}, {
+  // The target is a function, so the proxy stays callable and `apply` can fire: the trap only
+  // runs for a callable target, and placing a call is exactly what this tripwire must refuse.
+  const unreachable = (path) => new Proxy(function () {}, {
     get(_target, property) {
       if (typeof property === 'symbol' || property === 'then') return undefined;
+      if (property === '__test_tripwire_path') return path;
       return unreachable(`${path}.${String(property)}`);
     },
     apply: () => refuse(path)(),

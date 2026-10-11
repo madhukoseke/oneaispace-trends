@@ -18,8 +18,8 @@ import { createCaseRecorder } from './pipelineSupport.ts';
 import { INGESTION_AUTH_DESIGN, INGESTION_LIMITATIONS, ITEM_WRITE_PATHS, ingestionAccess } from './ingestionAuth.ts';
 import { RECOVERY_GATE, RECOVERY_LIMITATIONS } from './recoveryGate.ts';
 import {
-  ANALYSIS_SUITE_COLLECTIONS, ISOLATED_DB_MARKER, ISOLATION_LIMITATIONS, PRODUCTION_COLLECTIONS,
-  createIsolatedTestDb, createLiveCallTripwire, probeCollection,
+  ANALYSIS_SUITE_COLLECTIONS, ISOLATED_DB_MARKER, ISOLATION_LIMITATIONS, IsolationViolationError,
+  PRODUCTION_COLLECTIONS, createIsolatedTestDb, createLiveCallTripwire, probeCollection,
 } from './testIsolation.ts';
 import {
   CLEANUP_CRITERIA, LIVE_RUN_ID, classifyFixtures, isSuiteIdentifier,
@@ -199,31 +199,48 @@ export async function runPhase3fSuite({ runId = `phase3f-suite_${Date.now()}` } 
         && touched.length > 0 && touched.every((name) => ANALYSIS_SUITE_COLLECTIONS.includes(name))
         && isolated.state.writes.every((entry) => ANALYSIS_SUITE_COLLECTIONS.includes(entry.collection))
         && isolated.describe().production_writes === 0,
-      note: { writes_by_collection: isolated.describe().writes_by_collection, touched },
+      note: {
+        anchor_id: anchor.id, slot_ok: slot.ok, slot_updated: slot.updated,
+        updated_status: updated.status, cache_fingerprint: cache.fingerprint,
+        writes_by_collection: isolated.describe().writes_by_collection, touched,
+      },
     };
   });
 
   await record('isolation.the_tripwire_refuses_every_platform_call', async () => {
     const tripwire = createLiveCallTripwire('the regression case');
-    const attempt = (path, handler) => {
+    // Each probe places a call and is awaited, so a refusal that arrives as a rejected promise
+    // counts as a refusal too. Reading a property alone is inert and is deliberately not a probe:
+    // the tripwire exists to stop calls.
+    const attempt = async (path, handler) => {
       try {
-        handler();
-        return { path, refused: false };
+        await handler();
+        return { path, refused: false, kind: 'no error raised' };
       } catch (error) {
-        return { path, refused: true, reason: String((error && error.message) || error) };
+        return {
+          path,
+          refused: error instanceof IsolationViolationError,
+          kind: error instanceof IsolationViolationError ? 'isolation_violation' : `unexpected: ${error && error.name}`,
+        };
       }
     };
-    const attempts = [
-      attempt('auth.me', () => tripwire.auth.me()),
-      attempt('entities.Item', () => tripwire.entities.Item),
-      attempt('asServiceRole.integrations.Core.InvokeLLM', () => tripwire.asServiceRole.integrations.Core.InvokeLLM()),
-      attempt('asServiceRole.entities.DevDevelopment', () => tripwire.asServiceRole.entities.DevDevelopment),
-      attempt('asServiceRole.aiGateway.connection', () => tripwire.asServiceRole.aiGateway.connection()),
-      attempt('integrations.Core.InvokeLLM', () => tripwire.integrations.Core.InvokeLLM()),
-    ];
+    const attempts = [];
+    attempts.push(await attempt('auth.me', () => tripwire.auth.me()));
+    attempts.push(await attempt('users.inviteUser', () => tripwire.users.inviteUser('someone@example.org', 'user')));
+    attempts.push(await attempt('functions.invoke', () => tripwire.functions.invoke('ingestTrends', {})));
+    attempts.push(await attempt('entities.Item.filter', () => tripwire.entities.Item.filter({})));
+    attempts.push(await attempt('entities.DevAnalysisRun.create', () => tripwire.entities.DevAnalysisRun.create({})));
+    attempts.push(await attempt('integrations.Core.InvokeLLM', () => tripwire.integrations.Core.InvokeLLM({ prompt: 'x' })));
+    attempts.push(await attempt('asServiceRole.entities.Item.update', () => tripwire.asServiceRole.entities.Item.update('x', {})));
+    attempts.push(await attempt('asServiceRole.integrations.Core.InvokeLLM', () => tripwire.asServiceRole.integrations.Core.InvokeLLM({ prompt: 'x' })));
+    attempts.push(await attempt('asServiceRole.aiGateway.connection', () => tripwire.asServiceRole.aiGateway.connection({ provider: 'typesafe' })));
+    const notRefused = attempts.filter((entry) => !entry.refused);
     return {
-      ok: attempts.length === 6 && attempts.every((entry) => entry.refused),
-      note: { refused: attempts.map((entry) => entry.path) },
+      ok: attempts.length === 9 && notRefused.length === 0 && tripwire.__test_tripwire === true,
+      note: {
+        probes: attempts.length, refused: attempts.length - notRefused.length,
+        not_refused: notRefused, kinds: Array.from(new Set(attempts.map((entry) => entry.kind))),
+      },
     };
   });
 
@@ -250,7 +267,7 @@ export async function runPhase3fSuite({ runId = `phase3f-suite_${Date.now()}` } 
         && isolated.describe().production_writes === 0,
       note: {
         nested_cases: nested.cases_run, nested_passed: nested.passed, nested_failed: nested.failed,
-        failing: nested.cases.filter((entry) => !entry.ok).map((entry) => ({ name: entry.name, detail: entry.detail })),
+        failing: nested.cases.filter((entry) => !entry.ok).map((entry) => entry.name),
         collections_touched: touched, in_memory_writes: isolated.state.writes.length,
         item_reachable: itemProbe.reached, proof_reachable: proofProbe.reached,
       },
@@ -375,31 +392,46 @@ export async function runPhase3fSuite({ runId = `phase3f-suite_${Date.now()}` } 
 
   // --- 6. the recovery gate ----------------------------------------------------------------
   await record('recovery.stays_blocked_without_a_documented_atomic_mechanism', async () => {
+    const guarded = createIsolatedTestDb({ collections: ANALYSIS_SUITE_COLLECTIONS, label: 'recovery-probe' });
     const attempt = (label, handler) => {
       try {
         handler();
-        return { label, refused: false };
+        return { label, refused: false, kind: 'no error raised' };
       } catch (error) {
-        return { label, refused: /not a function|undefined/i.test(String((error && error.message) || error)) };
+        return {
+          label,
+          refused: error instanceof IsolationViolationError,
+          kind: error instanceof IsolationViolationError ? 'isolation_violation' : `unexpected: ${error && error.name}`,
+        };
       }
     };
-    const guarded = createIsolatedTestDb({ collections: ANALYSIS_SUITE_COLLECTIONS, label: 'recovery-probe' });
+    // The recovery would have to write Item.excerpt directly. No write method for Item and no
+    // transaction is reachable at all, which is the structural half of the block; the declared
+    // half is that the platform documents neither atomicity nor a compare-and-set.
     const probes = [
-      attempt('Item.updateMany', () => guarded.db.Item.updateMany({}, { $set: {} })),
+      attempt('Item.updateMany', () => guarded.db.Item.updateMany({}, { $set: { excerpt: 'x' } })),
+      attempt('Item.update', () => guarded.db.Item.update('itm_1', { excerpt: 'x' })),
       attempt('transaction', () => guarded.db.transaction({})),
     ];
+    const notRefused = probes.filter((entry) => !entry.refused);
     return {
-      ok: RECOVERY_GATE.status === 'blocked' && RECOVERY_GATE.documented_atomic_update === false
-        && RECOVERY_GATE.documented_transaction === false && RECOVERY_GATE.documented_compare_and_set === false
-        && RECOVERY_GATE.required_before_proceeding.length >= 3
+      ok: RECOVERY_GATE.status === 'blocked'
+        && RECOVERY_GATE.documented_atomic_update === false
+        && RECOVERY_GATE.documented_transaction === false
+        && RECOVERY_GATE.documented_compare_and_set === false
+        && RECOVERY_GATE.required_before_proceeding.length === 3
+        && RECOVERY_GATE.blocked_because.length === 3
+        && /updateMany\(\) match count/.test(RECOVERY_GATE.prohibited)
         && RECOVERY_GATE.manifest.records === 23
-        && probes.every((probe) => probe.refused)
-        && RECOVERY_LIMITATIONS.no_bypass.length > 40,
+        && notRefused.length === 0
+        && RECOVERY_LIMITATIONS.no_bypass.length > 40
+        && RECOVERY_LIMITATIONS.writers_remain.includes('administrator'),
       note: {
         status: RECOVERY_GATE.status,
         documented_atomic_update: RECOVERY_GATE.documented_atomic_update,
-        manifest: RECOVERY_GATE.manifest,
-        unreachable_probes: probes.map((probe) => probe.label),
+        manifest_records: RECOVERY_GATE.manifest.records,
+        prerequisites: RECOVERY_GATE.required_before_proceeding.length,
+        probes: probes.length, not_refused: notRefused,
       },
     };
   });
