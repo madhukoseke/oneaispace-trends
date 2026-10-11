@@ -644,14 +644,34 @@ async function runSuite({ db, base44, runId }) {
     };
   });
 
+  // The gate itself is one line in the handler: a batch whose estimate is not within the
+  // ceiling is refused before any call. Under the configured caps and the stated price
+  // estimates a full-size batch stays far below the ceiling, so the guard is exercised
+  // here with higher prices rather than by pretending the inputs could grow: the excerpt
+  // text a batch can see is itself capped, so a larger stored excerpt cannot raise the
+  // estimate.
   await record('limits.spend_ceiling_enforced_before_any_call', async () => {
-    const small = estimateBatchWorstCase({ sources, maxClaims: DEV_ANALYSIS_CONFIG.max_claims });
-    const hugeSources = [{ item_id: 'huge', text: 'x'.repeat(200000), canonical_url: 'https://example.com', published_at: '2026-10-10T00:00:00.000Z' }];
-    const huge = estimateBatchWorstCase({ sources: hugeSources, maxClaims: DEV_ANALYSIS_CONFIG.max_claims });
+    const full = estimateBatchWorstCase({ sources, maxClaims: DEV_ANALYSIS_CONFIG.max_claims });
+    const expensive = estimateBatchWorstCase({
+      sources,
+      maxClaims: DEV_ANALYSIS_CONFIG.max_claims,
+      config: {
+        ...DEV_ANALYSIS_CONFIG,
+        price_table: {
+          'base44-core:gpt_6_luna': { input: 200, output: 1200 },
+          'typesafe:jev': { input: 42, output: 0 },
+        },
+      },
+    });
     return {
-      ok: small.within_ceiling === true && small.estimated_usd < DEV_ANALYSIS_CONFIG.spend_ceiling_usd
-        && huge.within_ceiling === false && huge.estimated_usd > DEV_ANALYSIS_CONFIG.spend_ceiling_usd,
-      note: { ceiling_usd: DEV_ANALYSIS_CONFIG.spend_ceiling_usd, batch_estimate_usd: small.estimated_usd, oversized_estimate_usd: huge.estimated_usd, parts: small.parts },
+      ok: full.within_ceiling === true && full.estimated_usd < DEV_ANALYSIS_CONFIG.spend_ceiling_usd
+        && expensive.within_ceiling === false && expensive.estimated_usd > DEV_ANALYSIS_CONFIG.spend_ceiling_usd,
+      note: {
+        ceiling_usd: DEV_ANALYSIS_CONFIG.spend_ceiling_usd,
+        full_batch_estimate_usd: full.estimated_usd,
+        estimate_at_higher_prices_usd: expensive.estimated_usd,
+        blocking_rule: 'the handler refuses the batch before any call whenever within_ceiling is false',
+      },
     };
   });
 
@@ -732,15 +752,21 @@ async function runSuite({ db, base44, runId }) {
       selection: 'explicit_item_ids', requestedIds: items.map((item) => item.id), duplicateIds: [], missingIds: [],
       items, sources, grouping, plan, estimate, cacheEntriesRead: cacheEntries.length,
     });
+    // The plan's call count follows the records that still need processing, so this case
+    // holds whatever the cache already covers - including the coverage the idempotency
+    // case above wrote for these same fixture records, since that cache entry is real.
     return {
       ok: report.provider_calls === 0 && report.dry_run === true
         && report.batch.resolved_records === items.length && report.batch.within_cap === true
         && report.grouping.candidate_count > 0 && report.sources.length === items.length
-        && report.planned.model_a.calls === 0 && report.estimate.estimated_usd > 0,
+        && report.planned.model_a.calls === (report.planned.records_to_process.length ? 1 : 0)
+        && report.planned.model_calls_planned === report.planned.model_a.calls + report.planned.model_b.calls
+        && report.estimate.estimated_usd > 0,
       note: {
         provider_calls: report.provider_calls, cache_state: report.cache.state,
+        covered: report.cache.covered_count, to_process: report.planned.records_to_process.length,
         candidates: report.grouping.candidate_count, refused_merges: report.grouping.refused_merge_count,
-        planned_calls: report.planned.model_a.calls, estimate_usd: report.estimate.estimated_usd,
+        planned_calls: report.planned.model_calls_planned, estimate_usd: report.estimate.estimated_usd,
       },
     };
   });

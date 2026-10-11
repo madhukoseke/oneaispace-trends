@@ -130,7 +130,7 @@ export const DEV_LIMITATIONS = {
   extraction_recall:
     'A development that the models do not return is simply absent. The pipeline cannot prove that no further development exists in the supplied records.',
   cost:
-    'No billed cost is available from the platform. Costs are per-call estimates from published price estimates and provider-returned token usage, recorded separately per provider, and are never presented as billed amounts. A call whose usage is not returned is recorded as unestimated.',
+    'No billed cost is available from the platform. Costs are per-call estimates from published price estimates and provider-returned token usage, recorded separately per provider, and are never presented as billed amounts. A call whose usage is not returned is recorded as unestimated. The pre-call spend ceiling is a guard against future price or cap changes rather than against today\'s batch: with the excerpt cap, the claim caps and these price estimates, a full-size batch estimates far below the ceiling.',
   atomicity:
     'Entity compare-and-swap is an observed behaviour, not a documented guarantee: a guarded single-record update reports how many records it changed, and every claim and call slot fails closed whenever that reported count is not exactly 1.',
   duplicate_anchors:

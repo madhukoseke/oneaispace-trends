@@ -23,7 +23,7 @@ import { DEV_ANALYSIS_CONFIG, DEVELOPMENT_KINDS, RELEASE_VERBS } from './devAnal
 import { normalizeForMatch, quoteMatchInRecord } from './modelProofCriteria.ts';
 import { canonicalKey } from './normalize.ts';
 import {
-  familyTokens, numericDesignatorTokens, sourceRecordText, sourceText, versionedTokens,
+  familyTokens, hashString, numericDesignatorTokens, sourceRecordText, sourceText, versionedTokens,
 } from './devAnalysisGrouping.ts';
 
 export const CLAIM_REJECTION_REASONS = {
@@ -390,7 +390,10 @@ export function finalizeDevelopments({ claimCandidates, evaluations, sources, ru
     const modelStates = claimRows.map((row) => row.model_state);
     const modelSupported = claimRows.some((row) => row.model_state === 'supported');
 
-    const developmentId = `dev_${index + 1}_${String(runId || '').slice(-8)}`;
+    // The id is derived from the run and the candidate it belongs to, so two batches never
+    // share one - a run-id tail alone can repeat between runs, which would put two
+    // different developments on the same id.
+    const developmentId = `dev_${index + 1}_${hashString(`${runId}|${candidate.group_hint || supportingItemIds.join('+')}|${index}`)}`;
     const status = candidate.rejected_for_this_development > 0 ? 'partial' : 'accepted';
 
     for (const row of claimRows) claims.push({ ...row, development_id: developmentId, run_id: runId });
