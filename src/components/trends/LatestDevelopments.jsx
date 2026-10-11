@@ -4,13 +4,13 @@ import DevelopmentCard from "./DevelopmentCard";
 
 function CardsSkeleton() {
   return (
-    <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
-      {[0, 1, 2].map((key) => (
-        <div key={key} className="space-y-2.5 rounded-[11px] border border-border/70 bg-card p-4">
+    <div className="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-2" aria-hidden="true">
+      {[0, 1].map((key) => (
+        <div key={key} className="space-y-2 rounded-[10px] border border-border/60 bg-card p-3.5">
           <Skeleton className="h-3 w-28" />
           <Skeleton className="h-4 w-full" />
           <Skeleton className="h-3 w-4/5" />
-          <Skeleton className="h-3 w-1/2" />
+          <Skeleton className="h-3 w-1/3" />
         </div>
       ))}
     </div>
@@ -31,10 +31,11 @@ export default function LatestDevelopments({ items, loading, error, onRetry, hid
   if (!loading && !error && !items.length) return null;
 
   return (
-    <section className="mt-8 border-t border-border/70 pt-5" aria-labelledby="latest-developments">
+    <section className="mt-7 border-t border-border/60 pt-5" aria-labelledby="latest-developments">
       <SectionHeading
         id="latest-developments"
         title="Latest Developments"
+        note="Source-supported updates from across AI."
       />
 
       {loading ? (
@@ -51,7 +52,7 @@ export default function LatestDevelopments({ items, loading, error, onRetry, hid
           </button>
         </div>
       ) : (
-        <ul className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <ul className="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-2">
           {items.map((item) => (
             <li key={item.development_id} className="h-full">
               <DevelopmentCard item={item} />
@@ -63,7 +64,7 @@ export default function LatestDevelopments({ items, loading, error, onRetry, hid
       {/* The note about what these cards are sits with them, below them, rather than above. */}
       {!loading && !error && items.length ? (
         <p className="mt-3 text-[12px] text-muted-foreground">
-          Accepted developments from sources already stored here, newest first
+          Accepted developments from sources already stored here, newest first.
         </p>
       ) : null}
     </section>

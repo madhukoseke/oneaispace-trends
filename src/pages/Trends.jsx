@@ -1,9 +1,9 @@
 import { useCallback, useMemo } from "react";
-import DiscoverHero from "@/components/trends/DiscoverHero";
+import TrendsHeader from "@/components/trends/TrendsHeader";
 import CategoryNav from "@/components/trends/CategoryNav";
 import FormatTabs from "@/components/trends/FormatTabs";
 import ExploreToolbar from "@/components/trends/ExploreToolbar";
-import DiscoveryGrid from "@/components/trends/DiscoveryGrid";
+import SourceList from "@/components/trends/SourceList";
 import SectionHeading from "@/components/trends/SectionHeading";
 import LatestDevelopments from "@/components/trends/LatestDevelopments";
 import useDiscovery from "@/hooks/useDiscovery";
@@ -12,13 +12,12 @@ import useTopicOptions from "@/hooks/useTopicOptions";
 import useLatestDevelopments from "@/hooks/useLatestDevelopments";
 import { categorySlugs, moreTrends } from "@/lib/categories";
 
-const DESCRIPTION =
-  "A catalogue of AI developments, gathered from their original sources and kept honest: every item links to the page it came from, and nothing here is verified beyond its source.";
+const SUBTITLE = "Discover what's happening in AI.";
 
-// The discovery surface, in one column: identity and search, the compact category row, the
-// developments the public feed has proven, then the whole catalogue under Explore AI. The
-// category row narrows the catalogue to existing trend identifiers and is the only
-// navigation this page needs.
+// The discovery surface, one 1160px column: the page identity and its one search field, the
+// compact category row, the developments the public feed has proven, then the whole catalogue
+// as a single scannable list under Explore AI. The category row narrows the catalogue to
+// existing trend identifiers and is the only navigation this page needs.
 export default function Trends() {
   const { state, update, loadMore, reload, facets, items, total, loading, error, hasMore, tagQuery } =
     useDiscovery({});
@@ -65,15 +64,10 @@ export default function Trends() {
     Boolean(state.topic);
 
   return (
-    <div className="mx-auto max-w-[1440px] px-4 pb-12 pt-6 sm:px-6 lg:px-10">
-      <DiscoverHero
-        title="Trends"
-        description={DESCRIPTION}
-        query={state.q}
-        onQueryChange={handleQuery}
-      />
+    <div className="mx-auto max-w-[1160px] px-4 pb-14 pt-7 sm:px-6 lg:px-8">
+      <TrendsHeader title="Trends" subtitle={SUBTITLE} query={state.q} onQueryChange={handleQuery} />
 
-      <div className="mt-6 border-b border-border/70 pb-3">
+      <div className="mt-5 border-b border-border/60">
         <CategoryNav value={state.category} onChange={handleCategory} more={more} />
       </div>
 
@@ -85,11 +79,19 @@ export default function Trends() {
         onRetry={developments.reload}
       />
 
-      <section className="mt-8 border-t border-border/70 pt-5" aria-labelledby="explore-ai">
-        <SectionHeading id="explore-ai" title="Explore AI" />
+      <section className="mt-7 border-t border-border/60 pt-5" aria-labelledby="explore-ai">
+        <SectionHeading
+          id="explore-ai"
+          title="Explore AI"
+          note="Browse original sources, research, releases, and tools."
+        />
 
-        <div className="mt-3 space-y-2">
-          <FormatTabs rows={facets.formats} value={state.format} onChange={(value) => update({ format: value })} />
+        <div className="mt-3 space-y-2.5">
+          <FormatTabs
+            rows={facets.formats}
+            value={state.format}
+            onChange={(value) => update({ format: value })}
+          />
           <ExploreToolbar
             state={state}
             facets={facets}
@@ -102,7 +104,7 @@ export default function Trends() {
         </div>
 
         <div className="mt-4">
-          <DiscoveryGrid
+          <SourceList
             items={items}
             loading={loading}
             error={error}

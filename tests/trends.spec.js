@@ -177,19 +177,14 @@ test.describe("latest developments", () => {
 });
 
 test.describe("explore AI", () => {
-  test("keeps format navigation and hides the secondary filters until asked", async ({ page }) => {
+  test("keeps format navigation and the whole filter row visible", async ({ page }) => {
     await page.goto(TRENDS);
     await expect(page.getByRole("tablist", { name: "Format" })).toBeVisible();
 
-    const filters = page.getByRole("button", { name: /^Filters/ });
-    await expect(filters).toBeVisible();
-    await expect(filters).toHaveAttribute("aria-expanded", "false");
-    await expect(page.getByLabel("Filter by source")).toHaveCount(0);
-
-    await filters.click();
-    await expect(filters).toHaveAttribute("aria-expanded", "true");
+    // Source, sort and tags are working controls on the surface, not hidden behind a panel.
     await expect(page.getByLabel("Filter by source")).toBeVisible();
     await expect(page.getByLabel("Sort results")).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Tags/ })).toBeVisible();
   });
 
   test("content-type filters stay in the URL and change the results", async ({ page }) => {
@@ -209,7 +204,6 @@ test.describe("explore AI", () => {
 
   test("search and a source filter combine without losing either", async ({ page }) => {
     await page.goto(TRENDS);
-    await page.getByRole("button", { name: /^Filters/ }).click();
     await page.getByLabel("Filter by source").click();
     const option = page.getByRole("option").nth(1);
     await option.click();
@@ -230,7 +224,7 @@ test.describe("explore AI", () => {
 test.describe("source cards", () => {
   test("one hierarchy: source, title, excerpt, date and save, with no reported metrics", async ({ page }) => {
     await page.goto(TRENDS);
-    const card = page.locator("article").first();
+    const card = page.locator('section[aria-labelledby="explore-ai"] article').first();
     await expect(card).toBeVisible();
     await expect(card.locator("h3")).toBeVisible();
     await expect(card.locator("time")).toBeVisible();
@@ -241,7 +235,7 @@ test.describe("source cards", () => {
 
   test("the card's primary action opens the canonical original source", async ({ page }) => {
     await page.goto(TRENDS);
-    const original = page.locator("article").first().locator("h3 a").first();
+    const original = page.locator('section[aria-labelledby="explore-ai"] article').first().locator("h3 a").first();
     await expect(original).toHaveAttribute("href", /^https?:\/\//);
     await expect(original).toHaveAttribute("target", "_blank");
   });
@@ -346,7 +340,7 @@ test.describe("saved items", () => {
 test.describe("themes and responsiveness", () => {
   test("light and dark both render and the choice persists", async ({ page }) => {
     await page.goto(TRENDS);
-    const toggle = page.getByRole("button", { name: /Switch to (light|dark) theme/i });
+    const toggle = page.getByRole("button", { name: /Switch to (light|dark) appearance/i });
     await toggle.click();
     const themeAfterClick = await page.evaluate(() => document.documentElement.className);
     await page.reload();

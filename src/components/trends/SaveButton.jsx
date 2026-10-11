@@ -4,6 +4,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { useSaves } from "@/hooks/useSaves";
 import { cn } from "@/lib/utils";
 
+// Compact labelled save control: it states what it does and reports its own state through
+// aria-pressed, so the icon is never the only thing carrying the meaning.
 export default function SaveButton({ item, className }) {
   const { isSaved, isPending, toggle, signedIn } = useSaves();
   const { toast } = useToast();
@@ -34,14 +36,15 @@ export default function SaveButton({ item, className }) {
           aria-pressed={saved}
           aria-label={saved ? `Remove "${item.title}" from saved items` : `Save "${item.title}"`}
           className={cn(
-            "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[7px] text-muted-foreground outline-none transition-colors duration-150",
-            "hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+            "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] border border-border/60 px-2 text-[12.5px] outline-none transition-colors duration-150",
+            "hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             "disabled:opacity-60",
-            saved && "text-brand hover:text-brand",
+            saved ? "text-brand" : "text-muted-foreground hover:text-foreground",
             className
           )}
         >
-          <Bookmark className={cn("h-[17px] w-[17px]", saved && "fill-current")} strokeWidth={1.75} aria-hidden="true" />
+          <Bookmark className={cn("h-[15px] w-[15px]", saved && "fill-current")} strokeWidth={1.75} aria-hidden="true" />
+          <span>{saved ? "Saved" : "Save"}</span>
         </button>
       </TooltipTrigger>
       <TooltipContent side="left">{signedIn ? (saved ? "Saved" : "Save") : "Sign in to save"}</TooltipContent>

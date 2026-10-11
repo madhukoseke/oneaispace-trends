@@ -1,63 +1,89 @@
+/* Workspace-hosted grotesk, used as the app's single type voice. */
+@font-face {
+  font-family: "Neue Haas Grotesk Display Pro";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("https://media.base44.com/files/public/builder-assets/wix-fonts/neue-haas-grotesk-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Neue Haas Grotesk Display Pro";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("https://media.base44.com/files/public/builder-assets/wix-fonts/neue-haas-grotesk-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Neue Haas Grotesk Display Pro";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("https://media.base44.com/files/public/builder-assets/wix-fonts/neue-haas-grotesk-700-normal.woff2") format("woff2");
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --background: 220 20% 98%;
-    --foreground: 216 20% 6%;
+    --background: 240 5% 98%;
+    --foreground: 240 6% 4%;
     --card: 0 0% 100%;
-    --card-foreground: 216 20% 6%;
+    --card-foreground: 240 6% 4%;
     --popover: 0 0% 100%;
-    --popover-foreground: 216 20% 6%;
-    --primary: 216 20% 9%;
-    --primary-foreground: 220 20% 98%;
-    --secondary: 220 16% 95%;
-    --secondary-foreground: 216 20% 10%;
-    --muted: 220 16% 95%;
-    --muted-foreground: 217 11% 42%;
-    --accent: 220 16% 95%;
-    --accent-foreground: 216 20% 10%;
-    --destructive: 0 62% 45%;
+    --popover-foreground: 240 6% 4%;
+    --primary: 240 6% 6%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 8%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 220 9% 45%;
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 6% 8%;
+    --destructive: 358 62% 47%;
     --destructive-foreground: 0 0% 100%;
-    --border: 218 16% 88%;
-    --input: 218 16% 88%;
-    --ring: 213 72% 48%;
-    --brand: 213 72% 45%;
+    --border: 240 6% 90%;
+    --input: 240 6% 89%;
+    --ring: 228 55% 55%;
+    --brand: 228 55% 48%;
     --brand-foreground: 0 0% 100%;
-    --surface: 220 17% 96%;
+    --surface: 240 5% 96.5%;
     --surface-elevated: 0 0% 100%;
     --radius: 0.625rem;
-    --font-heading: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-heading: "Neue Haas Grotesk Display Pro", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-body: "Neue Haas Grotesk Display Pro", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-display: "Neue Haas Grotesk Display Pro", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   }
 
+  /* Near-black working surface: restrained borders, one muted accent, no glow. */
   .dark {
-    --background: 216 19% 5%;
-    --foreground: 220 13% 93%;
-    --card: 218 19% 8%;
-    --card-foreground: 220 13% 93%;
-    --popover: 216 18% 11%;
-    --popover-foreground: 220 13% 93%;
-    --primary: 220 13% 93%;
-    --primary-foreground: 216 19% 7%;
-    --secondary: 216 15% 14%;
-    --secondary-foreground: 220 13% 93%;
-    --muted: 216 15% 14%;
-    --muted-foreground: 217 12% 66%;
-    --accent: 216 15% 14%;
-    --accent-foreground: 220 13% 93%;
-    --destructive: 0 58% 58%;
-    --destructive-foreground: 216 19% 7%;
-    --border: 216 14% 17%;
-    --input: 216 14% 19%;
-    --ring: 213 78% 62%;
-    --brand: 213 78% 64%;
-    --brand-foreground: 216 19% 7%;
-    --surface: 218 19% 8%;
-    --surface-elevated: 216 18% 11%;
+    --background: 210 11% 3.5%;
+    --foreground: 220 6% 93.5%;
+    --card: 216 15% 6.5%;
+    --card-foreground: 220 6% 93.5%;
+    --popover: 216 17% 9%;
+    --popover-foreground: 220 6% 93.5%;
+    --primary: 220 6% 93.5%;
+    --primary-foreground: 210 11% 4%;
+    --secondary: 216 13% 11.5%;
+    --secondary-foreground: 220 6% 93.5%;
+    --muted: 216 13% 11.5%;
+    --muted-foreground: 219 6% 57%;
+    --accent: 216 13% 11.5%;
+    --accent-foreground: 220 6% 93.5%;
+    --destructive: 358 68% 62%;
+    --destructive-foreground: 210 11% 4%;
+    --border: 216 10% 14%;
+    --input: 216 10% 16%;
+    --ring: 228 45% 67%;
+    --brand: 228 45% 67%;
+    --brand-foreground: 210 11% 4%;
+    --surface: 216 15% 6.5%;
+    --surface-elevated: 216 17% 9%;
   }
 }
 
@@ -76,7 +102,7 @@
   }
 
   ::selection {
-    background-color: hsl(var(--brand) / 0.24);
+    background-color: hsl(var(--brand) / 0.22);
   }
 
   :focus-visible {

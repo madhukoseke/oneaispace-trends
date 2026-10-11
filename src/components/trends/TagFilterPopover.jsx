@@ -27,7 +27,7 @@ export default function TagFilterPopover({ query, selected, onChange }) {
           )}
         >
           <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-          Filters
+          Tags
           {selected.length ? <span className="tabular-nums">({selected.length})</span> : null}
         </button>
       </PopoverTrigger>

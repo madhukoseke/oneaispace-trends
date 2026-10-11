@@ -2,10 +2,9 @@ import { useEffect, useState } from "react";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
-// The page's identity and its one search field. The field matches item titles, which is
-// exactly what the backend supports, and the helper line says so: nothing here implies
-// semantic or full-content search.
-export default function DiscoverHero({ title, description, query, onQueryChange }) {
+// Compact, left-aligned page identity with the search field directly beneath it. The field
+// matches item titles, which is what the backend supports, and the helper line says so.
+export default function TrendsHeader({ title = "Trends", subtitle, query, onQueryChange }) {
   const [value, setValue] = useState(query);
 
   useEffect(() => { setValue(query); }, [query]);
@@ -18,18 +17,16 @@ export default function DiscoverHero({ title, description, query, onQueryChange 
 
   return (
     <header>
-      <h1 className="text-[28px] font-semibold tracking-[-0.025em] sm:text-[34px]">{title}</h1>
-      {description ? (
-        <p className="mt-2.5 max-w-2xl text-[14px] leading-relaxed text-muted-foreground">{description}</p>
-      ) : null}
+      <h1 className="text-[21px] font-medium tracking-[-0.015em]">{title}</h1>
+      {subtitle ? <p className="mt-1 text-[13.5px] text-muted-foreground">{subtitle}</p> : null}
 
-      <div className="mt-6 max-w-2xl">
+      <div className="mt-5 max-w-[680px]">
         <label htmlFor="trends-search" className="sr-only">
           Search item titles
         </label>
         <div className="relative">
           <Search
-            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            className="pointer-events-none absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"
           />
           <Input
@@ -37,15 +34,15 @@ export default function DiscoverHero({ title, description, query, onQueryChange 
             type="search"
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            placeholder="Search titles"
-            className="h-11 rounded-[9px] pl-10 pr-10 text-[15px]"
+            placeholder="Search AI developments and sources..."
+            className="h-10 rounded-[8px] border-border/70 bg-card pl-9 pr-9 text-[14px] shadow-none"
           />
           {value ? (
             <button
               type="button"
               onClick={() => setValue("")}
               aria-label="Clear search"
-              className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-[6px] text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-[6px] text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
