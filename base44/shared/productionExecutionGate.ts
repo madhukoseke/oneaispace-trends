@@ -141,6 +141,8 @@ export const PRODUCTION_EXECUTION_LIMITATIONS = {
     'The gate covers the two paths wired to it (ingestTrends.run and enrichSourceText.enrich). A future function that writes production data would not be covered until it is added here and to its own entry point; the production-backed action list is where that is declared.',
   configuration_risk:
     'The gate itself is not switchable at runtime, so the only configuration risk is the content of the source list: an entry that is armed with a wrong path or action is refused rather than misapplied, and one armed before its run and left behind is bounded by its expiry.',
+  suites_unaffected:
+    'Diagnostics, dry runs, mocked suites and read-only reports stay reachable with no authorization at all, because they perform no live work. The gate covers execution, not inspection, so nothing about it prevents the regression itself from running.',
   not_a_substitute_for_isolation:
     'The in-memory store and the SDK tripwire protect a mocked suite from production; this gate protects production from a direct handler invocation. They cover different paths and neither one replaces the other.',
   covering_the_incident_path:

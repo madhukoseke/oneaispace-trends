@@ -529,7 +529,8 @@ export async function runPhase3fSuite({ runId = `phase3f-suite_${Date.now()}` } 
       ok: check('phase3g-run-1', 'ingestTrends', 'run').authorized === true
         && check(' phase3g-run-1 ', 'ingestTrends', 'run').authorized === true
         && check('phase3g-run-2', 'ingestTrends', 'run').reason === 'id_not_on_the_authorization_list'
-        && check('phase3g-run-1', [], 'run').reason === 'id_not_on_the_authorization_list'
+        && check('phase3g-run-1', 'ingestionTrends', 'run').reason === 'authorization_is_scoped_to_another_action'
+        && check('phase3g-run-1', 'ingestTrends', 'run') && check('phase3g-run-1', 'ingestTrends', 'run').entry.id === 'phase3g-run-1'
         && check('phase3g-run-1', 'enrichSourceText', 'enrich').reason === 'authorization_is_scoped_to_another_action'
         && check('phase3g-enrich-1', 'ingestTrends', 'run').reason === 'authorization_is_scoped_to_another_action'
         && check('phase3g-run-1', 'ingestTrends', 'dry_run').reason === 'authorization_is_scoped_to_another_action'
@@ -543,6 +544,8 @@ export async function runPhase3fSuite({ runId = `phase3f-suite_${Date.now()}` } 
         reused_for_another_action: check('phase3g-run-1', 'enrichSourceText', 'enrich').reason,
         wrong_action_on_its_own_path: check('phase3g-run-1', 'ingestTrends', 'dry_run').reason,
         unknown_id: check('phase3g-run-2', 'ingestTrends', 'run').reason,
+        different_path: check('phase3g-run-1', 'ingestionTrends', 'run').reason,
+        matched_entry_note: check('phase3g-run-1', 'ingestTrends', 'run').entry.note,
       },
     };
   });
