@@ -15,7 +15,7 @@ export const PROOF_CONFIG = {
   // Off by default and untouched by the proof itself.
   execution_enabled: false,
   stage: 'stage1-provider-proof',
-  max_records: 5,
+  max_records: 3,
   // One call per provider and two calls in total: the run record carries exactly
   // two call slots (call_slot_a, call_slot_b), one per provider, and each slot is
   // consumed by an atomic guarded update before its dispatch. Because only two
