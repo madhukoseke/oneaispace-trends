@@ -22,6 +22,7 @@
 import { CONTENT_STATES, DEV_ANALYSIS_CONFIG, DEVELOPMENT_KINDS, RELEASE_VERBS } from './devAnalysisConfig.ts';
 import { normalizeForMatch, quoteMatchInRecord } from './modelProofCriteria.ts';
 import { canonicalKey } from './normalize.ts';
+import { calibrateDevelopment } from './devCalibration.ts';
 import {
   contentState, familyTokens, hashString, numericDesignatorTokens, researchEvidenceOf, sourceRecordText,
   sourceText, versionedTokens,
@@ -123,6 +124,9 @@ export function buildSourceView(items, config = DEV_ANALYSIS_CONFIG) {
     item_id: item.id,
     source: item.source || '',
     source_key: item.source_key || '',
+    // Carried for the deterministic calibration and the research-provenance rule. The prompt
+    // builder names the fields it prints, so this never reaches a model.
+    format: item.format || '',
     published_at: item.published_at || '',
     canonical_url: item.canonical_url || '',
     title: cleanText(item.title, 200),
@@ -159,7 +163,7 @@ function citationCheck(reportedUrl, reportedPublishedAt, source) {
 // Requirement: a stored development must describe a specific identifiable event. This is
 // decided deterministically from the title and the verified evidence quotes - a named
 // model or version, or a named family with release language - never by the model.
-export function identifiableEventOf(title, quotes) {
+export function identifiableEventOf(title, quotes, context = {}) {
   const text = `${title} ${(quotes || []).join(' ')}`;
   const versions = versionedTokens(text);
   if (versions.length) {
@@ -173,7 +177,7 @@ export function identifiableEventOf(title, quotes) {
   if (designators.length && RELEASE_VERBS.test(text)) {
     return { identifiable: true, basis: 'version-bearing token with release language', tokens: designators };
   }
-  const research = researchEvidenceOf(title, quotes);
+  const research = researchEvidenceOf(title, quotes, context);
   if (research.eligible) {
     return {
       identifiable: true,
@@ -345,14 +349,27 @@ export function collectClaims({ rawDevelopments, sources, config = DEV_ANALYSIS_
     // method, framework, system or dataset is what the record is about. Everything else keeps
     // the kind the extraction model reported, and a kind outside the recorded list is stored
     // as unspecified rather than invented into one.
-    const research = researchEvidenceOf(title, claims.map((claim) => claim.evidence_quote));
+    // The development's own supporting records decide the research provenance the title pattern
+    // may be applied to, and the calibration below is computed from those same records.
+    const supportingSources = claims.map((claim) => claim.source).filter(Boolean);
+    const researchContext = {
+      format: supportingSources.some((source) => source.format === 'research') ? 'research' : '',
+      source_key: String((supportingSources[0] && supportingSources[0].source_key) || ''),
+    };
+    const research = researchEvidenceOf(title, claims.map((claim) => claim.evidence_quote), researchContext);
     const reportedKindKnown = DEVELOPMENT_KINDS.includes(reportedKind);
     const kind = research.eligible ? 'research' : (reportedKindKnown ? reportedKind : 'unspecified');
     const kindBasis = research.eligible
       ? `research contribution from the stored text: ${research.reason}`
       : `kind as reported by the extraction model${reportedKindKnown ? '' : ' (outside the recorded kinds, so stored as unspecified)'}`;
 
-    const event = identifiableEventOf(title, claims.map((claim) => claim.evidence_quote));
+    // Phase 3C: the three stages, computed beside the reported kind and never replacing it. An
+    // adoption story that names a model version is an adoption case study here, a repository with
+    // no release evidence is not a release, and a record with a missing excerpt is reported as an
+    // evidence limitation - whatever the extraction model called any of them.
+    const calibration = calibrateDevelopment({ title, sources: supportingSources, claims });
+
+    const event = identifiableEventOf(title, claims.map((claim) => claim.evidence_quote), researchContext);
     if (!event.identifiable) reasons.push(`${DEVELOPMENT_REJECTION_REASONS.no_identifiable_event}: ${event.basis}`);
 
     const titleKey = normalizeForMatch(title);
@@ -362,11 +379,19 @@ export function collectClaims({ rawDevelopments, sources, config = DEV_ANALYSIS_
     if (!claims.length && !reasons.length) reasons.push(DEVELOPMENT_REJECTION_REASONS.no_valid_claims);
 
     if (reasons.length) {
-      rejectedDevelopments.push({ title, kind, reported_kind: reportedKind, reasons, claim_candidates: claims.length });
+      rejectedDevelopments.push({
+        title, kind, reported_kind: reportedKind, reasons, claim_candidates: claims.length,
+        analysis_eligible: calibration.analysis_eligible, event_type: calibration.event_type,
+        evidence_status: calibration.evidence_status,
+      });
       continue;
     }
     if (candidates.length >= config.max_developments) {
-      rejectedDevelopments.push({ title, kind, reported_kind: reportedKind, reasons: [DEVELOPMENT_REJECTION_REASONS.over_development_cap], claim_candidates: claims.length });
+      rejectedDevelopments.push({
+        title, kind, reported_kind: reportedKind, reasons: [DEVELOPMENT_REJECTION_REASONS.over_development_cap],
+        claim_candidates: claims.length, analysis_eligible: calibration.analysis_eligible,
+        event_type: calibration.event_type, evidence_status: calibration.evidence_status,
+      });
       continue;
     }
 
@@ -380,6 +405,12 @@ export function collectClaims({ rawDevelopments, sources, config = DEV_ANALYSIS_
       reported_kind: reportedKind,
       kind_basis: kindBasis,
       research_evidence: research,
+      analysis_eligible: calibration.analysis_eligible,
+      event_type: calibration.event_type,
+      event_type_basis: calibration.event_type_basis,
+      evidence_status: calibration.evidence_status,
+      calibration_reason: calibration.calibration_reason,
+      calibration,
       model_identifiers: modelIdentifiers,
       model_versions: modelVersions,
       dropped_model_identifiers: droppedIdentifiers,
@@ -468,6 +499,15 @@ export function finalizeDevelopments({ claimCandidates, evaluations, sources, ru
     const developmentId = `dev_${index + 1}_${hashString(`${runId}|${candidate.group_hint || supportingItemIds.join('+')}|${index}`)}`;
     const status = candidate.rejected_for_this_development > 0 ? 'partial' : 'accepted';
 
+    // Phase 3C: the three stages for this development, from its own stored records and the claims
+    // whose quotes were verified against them. Recomputed here so the stored row states what was
+    // actually verified, not what was proposed.
+    const calibration = calibrateDevelopment({
+      title: candidate.title,
+      sources: supportingItemIds.map((itemId) => sourceById.get(itemId)).filter(Boolean),
+      claims: claimRows,
+    });
+
     for (const row of claimRows) claims.push({ ...row, development_id: developmentId, run_id: runId });
 
     developments.push({
@@ -501,6 +541,21 @@ export function finalizeDevelopments({ claimCandidates, evaluations, sources, ru
       evidence_supported_by_model: modelSupported,
       support_state: supportStateOf(modelStates),
       independent_verification: NOT_INDEPENDENTLY_VERIFIED,
+      // The calibrated stages, stored beside the reported kind and the model's opinion.
+      analysis_eligible: calibration.analysis_eligible,
+      event_type: calibration.event_type,
+      event_type_basis: calibration.event_type_basis,
+      evidence_status: calibration.evidence_status,
+      calibration_reason: calibration.calibration_reason,
+      calibration: {
+        reason_code: calibration.calibration_reason_code,
+        reason: calibration.calibration_reason,
+        basis: calibration.calibration_basis,
+        content_states: calibration.calibrated_content_states,
+        claim_quotes_checked: calibration.claim_quotes_checked,
+        claim_quotes_verified: calibration.claim_quotes_verified,
+        deterministic: true,
+      },
       validation: {
         evidence_check: { quotes_checked: claimRows.length, quotes_found_in_stored_record: claimRows.length },
         citations: {

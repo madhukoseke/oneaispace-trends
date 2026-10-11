@@ -12,6 +12,7 @@ import { CONTENT_STATES } from './devAnalysisConfig.ts';
 import { contentState, identifiableEvent } from './devAnalysisGrouping.ts';
 import { canonicalKey } from './normalize.ts';
 import { providerForItem } from './sourceEnrichment.ts';
+import { calibrateSourceRecord, summarizeCalibration } from './devCalibration.ts';
 
 export const QUALITY_MAX_RECORDS = 5000;
 export const QUALITY_PAGE_SIZE = 200;
@@ -34,6 +35,8 @@ export const SOURCE_QUALITY_LIMITATIONS = {
     'Analysis eligibility is the Phase 2A rule applied to the stored text: a record needs a stored excerpt and a named model, version, artefact or release signal. It says a record is a candidate for analysis, never that it holds a valid development.',
   duplicates:
     'Duplicates are grouped on the same canonical key the ingestion pipeline deduplicates with (host, path and non-tracking query, lowercased host). They are counted here, never deleted.',
+  calibration:
+    'The calibration block applies the Phase 3C rules to the same stored records: analysis eligibility, event type and evidence status, all deterministic and read-only. It classifies what the stored text reads as; it never makes a record verified, and it writes nothing.',
 };
 
 function hostOf(raw) {
@@ -226,6 +229,9 @@ export function summarizeSourceQuality({ records, truncated = false, scan_cap = 
       truncated: candidateCount > enrichmentCandidates.length,
       note: 'title-only records that name an identifiable event and whose provider publishes its own text for them. Listed for selection only: nothing here is fetched, written or enriched, and enrichment stays a separate, explicit, capped request',
     },
+    // Phase 3C: the three calibrated stages for every record in the scan, so eligibility, event
+    // type and evidence status can be read before and after calibration from one report.
+    calibration: summarizeCalibration(items.map(calibrateSourceRecord)),
     limitations: SOURCE_QUALITY_LIMITATIONS,
   };
 }

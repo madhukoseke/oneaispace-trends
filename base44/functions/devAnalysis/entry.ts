@@ -55,6 +55,8 @@ import { clip, makeReserve, refusalBody } from '../../shared/pipelineSupport.ts'
 import { loadItemsForQuality, summarizeSourceQuality } from '../../shared/sourceQuality.ts';
 import { runPipeline } from '../../shared/devAnalysisPipeline.ts';
 import { runSuite } from '../../shared/devAnalysisSuite.ts';
+import { runCalibrationSuite } from '../../shared/devCalibrationSuite.ts';
+import { CALIBRATION_LIMITATIONS, calibrateSourceRecord, summarizeCalibration } from '../../shared/devCalibration.ts';
 import {
   buildCallDetails, buildDevRunRecord, buildRejectionReport, consumeAuthorization, findRunById, listClaims,
   listDevelopments, listRuns, persistCacheEntry, persistClaims, persistDevelopments, persistRun, readCacheEntries,
@@ -179,8 +181,29 @@ export default async function (req) {
       });
     }
 
+    // --- Phase 3C: the calibration regression suite.
+    // Pure function cases over stored-text fixtures: no authorization is consumed, no record is
+    // read or written, no provider is contacted and no model is called.
+    if (action === 'calibration_suite') {
+      const tests = await runCalibrationSuite();
+      const status = tests.failed === 0 ? 'success' : 'failed';
+      return Response.json({
+        ok: status === 'success', action, run_id: `calibration_suite_${new Date(startedAt).toISOString()}`,
+        status, stage: config.stage,
+        read_only: true, authorization_consumed: false, record_created: false,
+        kill_switch: killSwitch, execution_enabled: config.execution_enabled,
+        model_calls: 0, provider_calls: 0, writes: 0,
+        summary: {
+          cases_run: tests.cases_run, passed: tests.passed, failed: tests.failed,
+          failing: tests.cases.filter((entry) => !entry.ok).map((entry) => ({ name: entry.name, detail: entry.detail })),
+        },
+        tests,
+        limitations: { ...DEV_LIMITATIONS, calibration: CALIBRATION_LIMITATIONS },
+      });
+    }
+
     if (action !== 'dry_run' && action !== 'analyze' && action !== 'suite') {
-      return Response.json({ ok: false, error: 'unknown action; expected source_quality, review, dry_run, analyze or suite' }, { status: 400 });
+      return Response.json({ ok: false, error: 'unknown action; expected source_quality, calibration_suite, review, dry_run, analyze or suite' }, { status: 400 });
     }
 
     const runId = clip(payload.run_id, 80);
@@ -293,6 +316,11 @@ export default async function (req) {
       ? validation.item_ids.filter((id) => !items.some((item) => item.id === id))
       : [];
 
+    // Phase 3C: the deterministic three stages - analysis eligibility, event type and evidence
+    // status - for every record of this batch, computed from the stored fields before anything is
+    // dispatched. The same three stages are stored on each development row written below.
+    const calibration = summarizeCalibration(items.map(calibrateSourceRecord));
+
     if (!items.length) {
       return blockedAfterClaim('no_records', 'blocked: no stored source record matched the request');
     }
@@ -355,7 +383,7 @@ export default async function (req) {
         cache_covered_item_ids: plan.covered.map((row) => row.item_id),
         processed_item_ids: plannedItems.map((item) => item.id),
         grouping: report.grouping,
-        report,
+        report: { ...report, calibration },
         content_exclusions: contentExclusions,
         estimated_spend_usd: estimate.estimated_usd,
         cost_estimate_basis: estimate.basis,
@@ -368,8 +396,8 @@ export default async function (req) {
       return Response.json({
         ok: true, action, run_id: runId, status: 'dry_run', stage: config.stage,
         authorization_id: authorizationId, authorization_consumed: true, kill_switch: killSwitch,
-        provider_calls: 0, model_calls: 0, report, record_id: updated.id,
-        limitations: DEV_LIMITATIONS,
+        provider_calls: 0, model_calls: 0, report: { ...report, calibration }, calibration, record_id: updated.id,
+        limitations: { ...DEV_LIMITATIONS, calibration: CALIBRATION_LIMITATIONS },
       });
     }
 
@@ -473,6 +501,7 @@ export default async function (req) {
       cache_covered_item_ids: plan.covered.map((row) => row.item_id),
       cache_entry_ids: cacheEntry ? [cacheEntry.id] : [],
       content_exclusions: contentExclusions,
+      report: { calibration },
       call_details: callDetails,
       rejection_report: rejectionReport,
       grouping: { method: grouping.method, candidates: grouping.candidates, duplicates: grouping.duplicates, refused_merges: grouping.refused_merges, records_analysed: grouping.records_analysed },
@@ -522,6 +551,7 @@ export default async function (req) {
       },
       cache: { state: plan.cache_state, entry_id: cacheEntry ? cacheEntry.id : null, note: plan.note },
       content_exclusions: contentExclusions,
+      calibration,
       grouping: {
         method: grouping.method, candidates: grouping.candidates, duplicates: grouping.duplicates,
         refused_merges: grouping.refused_merges, records_analysed: grouping.records_analysed,

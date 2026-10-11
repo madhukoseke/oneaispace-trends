@@ -117,12 +117,46 @@ export const CONTENT_STATES = {
 // appear in the stored text the evidence quote is taken from, so a headline alone cannot
 // make a record research.
 export const RESEARCH_PUBLICATION_PHRASES = [
-  'preprint', 'paper', 'journal', 'proceedings', 'arxiv', 'thesis', 'dissertation',
-  'technical report', 'white paper', 'whitepaper', 'systematic review', 'survey',
-  'we propose', 'we present', 'we introduce', 'we describe', 'we develop',
-  'this paper', 'this study', 'this report', 'this work',
+  'we propose', 'we present', 'we introduce', 'we describe', 'we develop', 'we design',
+  'we build', 'we construct', 'we train', 'we evaluate', 'we benchmark', 'we release',
+  'we contribute', 'we demonstrate', 'we report',
   'our method', 'our framework', 'our system', 'our dataset', 'our approach', 'our analysis',
-  'benchmark suite', 'benchmark study', 'empirical study', 'empirical evaluation',
+  'our model', 'our algorithm', 'our benchmark', 'our implementation',
+  'a novel', 'novel method', 'novel framework', 'novel dataset', 'novel benchmark',
+  'benchmark suite', 'empirical study', 'empirical evaluation', 'systematic review',
+];
+
+// Publication format words. These are context, never qualification: "paper", "study" or
+// "research" say nothing about whether a record carries a contribution, so a generic article
+// that merely calls itself a paper or a study is not made eligible by these words.
+export const RESEARCH_VENUE_PHRASES = [
+  'preprint', 'paper', 'journal', 'proceedings', 'arxiv', 'thesis', 'dissertation',
+  'technical report', 'white paper', 'whitepaper', 'survey', 'research',
+  'this paper', 'this study', 'this report', 'this work',
+];
+
+// A research title that names its own artefact and then says what it is - the
+// "Name: <what it is>" convention research records use, as in
+// "Dex-One2Many: Learning Dexterous Manipulation from a Single Human Demonstration".
+// The artefact must sit before the first colon and must be a real name rather than the
+// sentence's opening word, and the subtitle must carry one of these words.
+export const RESEARCH_TITLE_ARTIFACT_STOPWORDS = [
+  'introducing', 'announcing', 'launching', 'presenting', 'unveiling', 'building', 'towards',
+  'toward', 'understanding', 'rethinking', 'scaling', 'learning', 'new', 'a', 'an', 'the',
+  'how', 'why', 'what', 'meet', 'notes', 'report',
+];
+
+export const RESEARCH_TITLE_CONTRIBUTION_WORDS = [
+  'method', 'methods', 'framework', 'frameworks', 'benchmark', 'benchmarks', 'dataset',
+  'datasets', 'system', 'systems', 'model', 'models', 'algorithm', 'algorithms', 'approach',
+  'architecture', 'suite', 'generator', 'evaluator', 'pipeline', 'toolkit', 'paradigm',
+  'protocol', 'environment', 'language', 'compiler', 'library', 'engine', 'harness',
+  'learning', 'understanding', 'generating', 'generation', 'reasoning', 'editing',
+  'detection', 'classification', 'segmentation', 'retrieval', 'training', 'evaluation',
+  'filtering', 'unifying', 'simplifying', 'addressing', 'rethinking', 'reconstructing',
+  'encoding', 'decoding', 'planning', 'scheduling', 'alignment', 'distillation',
+  'compression', 'prediction', 'summarization', 'grounding', 'synthesis', 'manipulation',
+  'interaction', 'simulation', 'optimization', 'calibration', 'verification',
 ];
 
 // Distinctive AI-family names. A family followed by a version number ("gpt-6",
@@ -162,6 +196,8 @@ export const DEV_LIMITATIONS = {
     'A record whose stored excerpt is missing is reported as title_only and is not analysed unless an administrator explicitly includes it; a record with no stored text at all is never analysed. Nothing is fetched from the original page, and no excerpt is generated, expanded or inferred to replace a missing one, so such a record can only ever be quoted as its own stored title.',
   research_classification:
     'A research development is accepted only when the stored text names a paper, method, framework, system or dataset, carries publication language, and a verified evidence quote contains that artefact. The kind reflects that contribution even when a versioned model is also mentioned. This makes a record eligible for analysis; it never makes it verified, and independent_verification stays not_performed.',
+  calibration:
+    'analysis_eligible, event_type and evidence_status are computed deterministically from the stored text, beside the extraction model\'s own reported kind, which is kept unchanged and never overwritten. They classify what the stored text reads as, not what is true: no event type makes a development verified, and a missing excerpt stays a reported evidence limitation rather than being filled in.',
   extraction_recall:
     'A development that the models do not return is simply absent. The pipeline cannot prove that no further development exists in the supplied records.',
   cost:

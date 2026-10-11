@@ -38,6 +38,41 @@
     "kind_basis": {
       "type": "string"
     },
+    "analysis_eligible": {
+      "type": "boolean",
+      "default": false
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "model_release",
+        "research_contribution",
+        "software_release",
+        "product_announcement",
+        "adoption_case_study",
+        "analysis_commentary",
+        "other"
+      ]
+    },
+    "event_type_basis": {
+      "type": "string"
+    },
+    "evidence_status": {
+      "type": "string",
+      "enum": [
+        "not_evaluated",
+        "no_stored_text",
+        "insufficient_stored_text",
+        "stored_text_available",
+        "claim_quote_verified"
+      ]
+    },
+    "calibration_reason": {
+      "type": "string"
+    },
+    "calibration": {
+      "type": "object"
+    },
     "research_evidence": {
       "type": "object"
     },

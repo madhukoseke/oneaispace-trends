@@ -727,7 +727,7 @@ export async function runSuite({ db, base44, runId }) {
     const required = [
       'source_grounding', 'excerpt_only', 'independent_verification', 'model_opinion', 'cache_semantics',
       'grouping', 'cost', 'atomicity', 'duplicate_anchors', 'retention', 'no_schedule', 'production_isolation',
-      'content_state', 'research_classification',
+      'content_state', 'research_classification', 'calibration',
     ];
     const missing = required.filter((key) => !DEV_LIMITATIONS[key]);
     return { ok: missing.length === 0, note: { undocumented: missing, declared: required.length } };
@@ -898,7 +898,10 @@ export async function runSuite({ db, base44, runId }) {
     };
   });
 
-  await record('research.negative_artifact_missing_from_evidence_rejected', async () => {
+  // The stored text carries a publication format word ("this paper") and no contribution, so the
+  // record is refused for the reason that now applies. It was previously reported as an artefact
+  // missing from the evidence; the record is rejected either way, before and after calibration.
+  await record('research.negative_publication_words_without_contribution_rejected', async () => {
     const weak = {
       id: 'itm_merit_weak', source: 'Example News', source_key: 'example',
       title: 'MERIT: A Benchmark for Multi-Step Reasoning',
@@ -928,7 +931,7 @@ export async function runSuite({ db, base44, runId }) {
     return {
       ok: pipeline.finalized.developments.length === 0
         && Boolean(rejection) && rejection.reasons.some((reason) => reason.includes('no identifiable event'))
-        && research.eligible === false && research.reason_code === 'artifact_not_in_evidence',
+        && research.eligible === false && research.reason_code === 'no_contribution_language',
       note: {
         reasons: rejection && rejection.reasons, research_reason: research.reason_code,
         stored: pipeline.finalized.developments.length, status: pipeline.status,

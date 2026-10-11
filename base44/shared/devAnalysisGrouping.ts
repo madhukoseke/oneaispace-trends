@@ -22,7 +22,9 @@
 import { canonicalKey, clip, titleKey } from './normalize.ts';
 import { normalizeForMatch } from './modelProofCriteria.ts';
 import {
-  CONTENT_STATES, GENERIC_GROUPING_TOKENS, NAMED_AI_FAMILIES, RELEASE_VERBS, RESEARCH_PUBLICATION_PHRASES,
+  CONTENT_STATES, GENERIC_GROUPING_TOKENS, NAMED_AI_FAMILIES, RELEASE_VERBS,
+  RESEARCH_PUBLICATION_PHRASES, RESEARCH_TITLE_ARTIFACT_STOPWORDS, RESEARCH_TITLE_CONTRIBUTION_WORDS,
+  RESEARCH_VENUE_PHRASES,
 } from './devAnalysisConfig.ts';
 
 // Stable, order-independent 64-bit-ish digest (two FNV-1a style lanes). Used for
@@ -210,42 +212,116 @@ export function researchArtifactTokens(title) {
   return Array.from(found).sort();
 }
 
-// The publication language that frames a named artefact as a research contribution. It is
-// read from the stored text the evidence quote comes from, so a headline alone never makes
-// a record research.
+// The contribution language that frames a named artefact as a research contribution: the
+// stored text stating what the work proposes, presents, builds, evaluates or releases. It is
+// read from the text the evidence comes from, so a headline alone never makes a record research.
 export function publicationLanguageOf(text) {
   const normalized = normalizeForMatch(text);
   if (!normalized) return [];
   return RESEARCH_PUBLICATION_PHRASES.filter((phrase) => normalized.includes(phrase)).sort();
 }
 
-// Research eligibility, decided in code: a named artefact from the title, publication
-// language in the supplied stored text, and the artefact itself present in that same text.
-// An artefact named only in a headline, or text with no publication language at all, is not
-// eligible. This makes a record eligible for analysis; it never makes it accepted, which
-// still requires a valid claim with a verbatim evidence quote.
-export function researchEvidenceOf(title, quotes) {
+// Publication format words, reported as context only. They never qualify a record on their own:
+// "this paper" or "a study" says what a text is called, not what it contributes.
+export function venueLanguageOf(text) {
+  const normalized = normalizeForMatch(text);
+  if (!normalized) return [];
+  return RESEARCH_VENUE_PHRASES.filter((phrase) => normalized.includes(phrase)).sort();
+}
+
+// A stored research title that names its own artefact and then describes it. Only the segment
+// before the first colon may carry the artefact, and only a real name counts there - so
+// "Dex-One2Many: Learning ..." qualifies while "Introducing ..." or a bare topic line does not.
+export function researchTitleContribution(title) {
+  const raw = String(title || '').trim();
+  const colon = raw.indexOf(':');
+  if (colon <= 0) return { ok: false, reason_code: 'no_title_artefact_pattern' };
+
+  const lead = raw.slice(0, colon).trim();
+  const subtitle = raw.slice(colon + 1).trim();
+  if (!lead || !subtitle) return { ok: false, reason_code: 'no_title_artefact_pattern' };
+
+  const artifacts = researchArtifactTokens(lead)
+    .filter((token) => !RESEARCH_TITLE_ARTIFACT_STOPWORDS.includes(token.toLowerCase()));
+  if (!artifacts.length) return { ok: false, reason_code: 'no_title_artefact' };
+
+  const words = normalizeTokenText(subtitle).replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean);
+  const contributionWord = words.find((word) => RESEARCH_TITLE_CONTRIBUTION_WORDS.includes(word));
+  if (!contributionWord) return { ok: false, reason_code: 'no_title_contribution_subtitle' };
+
+  return {
+    ok: true,
+    reason_code: 'title_names_artefact_and_contribution_subtitle',
+    artifact_tokens: artifacts,
+    contribution_word: contributionWord,
+  };
+}
+
+// A record counts as research provenance only when it was stored as a research record (or from
+// the arXiv feed). The title pattern is a statement about a paper's own title, so it is applied
+// to records that are papers - never to a news or commentary record that merely looks like one.
+function isResearchProvenance(context) {
+  const format = String((context && context.format) || '').toLowerCase();
+  const sourceKey = String((context && context.source_key) || '').toLowerCase();
+  return format === 'research' || sourceKey === 'arxiv';
+}
+
+// Research eligibility, decided in code. A record is a research contribution when its stored
+// title names an artefact and its stored text carries contribution language, or - for a record
+// stored as research - when the title itself is the "Name: <what it is>" statement of a
+// contribution. Format words alone never qualify it, and an artefact that appears only in the
+// headline while the text says nothing about it is refused. This makes a record eligible for
+// analysis; it never makes it accepted, which still requires a valid claim with a verbatim quote.
+export function researchEvidenceOf(title, quotes, context = {}) {
   const artifacts = researchArtifactTokens(title);
   const text = (quotes || []).join(' ').trim();
   const publication = publicationLanguageOf(text);
-  const base = { artifact_tokens: artifacts, publication_language: publication };
+  const venue = venueLanguageOf(text);
+  const base = { artifact_tokens: artifacts, publication_language: publication, venue_language: venue };
 
   if (!artifacts.length) {
-    return { ...base, eligible: false, reason_code: 'no_named_artifact', reason: 'the title names no paper, method, framework, system or dataset' };
+    return { ...base, eligible: false, reason_code: 'no_named_artifact', reason: 'the title names no paper, method, framework, benchmark, dataset or system' };
   }
-  if (!publication.length) {
-    return { ...base, eligible: false, reason_code: 'no_publication_language', reason: 'the stored text carries no publication language, so the record is not framed as a research contribution' };
+
+  const normalized = normalizeForMatch(text);
+  const quoted = artifacts.filter((artifact) => normalized.includes(normalizeForMatch(artifact)));
+
+  if (publication.length) {
+    if (!quoted.length) {
+      return { ...base, eligible: false, reason_code: 'artifact_not_in_evidence', reason: 'the named artefact appears in the title but not in the stored text the evidence is taken from' };
+    }
+    return {
+      ...base,
+      eligible: true,
+      reason_code: 'named_artifact_with_contribution_language',
+      reason: 'the stored text names this artefact and states what the work contributes',
+      quoted_artifact_tokens: quoted,
+      contribution_basis: 'contribution language in the stored text',
+    };
   }
-  const quoted = artifacts.filter((artifact) => normalizeForMatch(text).includes(normalizeForMatch(artifact)));
-  if (!quoted.length) {
-    return { ...base, eligible: false, reason_code: 'artifact_not_in_evidence', reason: 'the named artefact appears in the title but not in the stored text the evidence is taken from' };
+
+  const titleContribution = researchTitleContribution(title);
+  if (titleContribution.ok && isResearchProvenance(context)) {
+    return {
+      ...base,
+      eligible: true,
+      reason_code: 'title_names_artefact_and_contribution_subtitle',
+      reason: `the stored title names the artefact and describes it as a ${titleContribution.contribution_word}`,
+      quoted_artifact_tokens: quoted.length ? quoted : titleContribution.artifact_tokens,
+      contribution_basis: 'research title: artefact before the colon with a contribution-type subtitle',
+      title_contribution: titleContribution,
+    };
   }
+
   return {
     ...base,
-    eligible: true,
-    reason_code: 'named_artifact_with_publication_language',
-    reason: 'the stored text names this artefact and frames it as a research contribution',
-    quoted_artifact_tokens: quoted,
+    eligible: false,
+    // Two different refusals, stated separately: text that carries publication format words but
+    // no contribution at all, and text that says nothing about being a publication either.
+    reason_code: venue.length ? 'no_contribution_language' : 'no_publication_language',
+    reason: venue.length
+      ? `the stored text carries publication format words (${venue.join(', ')}) but states no contribution, so the record is not framed as a research contribution`
+      : 'the stored text carries no publication language, so the record is not framed as a research contribution',
   };
 }
 
@@ -309,7 +385,9 @@ export function identifiableEvent(item) {
   if (designators.length && RELEASE_VERBS.test(text)) {
     return { identifiable: true, basis: 'version-bearing token with release language', tokens: designators };
   }
-  const research = researchEvidenceOf(item && item.title, [text]);
+  const research = researchEvidenceOf(item && item.title, [text], {
+    format: item && item.format, source_key: item && item.source_key,
+  });
   if (research.eligible) {
     return {
       identifiable: true,

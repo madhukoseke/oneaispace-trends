@@ -28,10 +28,14 @@ export function decodeEntities(input) {
 
 export function stripHtml(input) {
   if (!input) return "";
-  const withoutBlocks = String(input)
+  // The CDATA markers are decoded before the tags are stripped. A feed that wraps its own
+  // description in <![CDATA[ ... ]]> would otherwise have that whole description removed as if
+  // it were markup - which is exactly what emptied every OpenAI and TechCrunch description.
+  // Decoding first also removes markup that was entity-encoded, so no tag survives either way.
+  const withoutBlocks = decodeEntities(String(input))
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ");
-  return decodeEntities(withoutBlocks.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+  return withoutBlocks.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
 export function clip(text, max = 240) {
