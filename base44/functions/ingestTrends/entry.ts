@@ -1,8 +1,18 @@
 // Trends ingestion: fetch -> normalise -> deduplicate -> store.
-// Runs upstream of page rendering (scheduled), never during a page view.
+// Runs upstream of page rendering, never during a page view.
 // Integrity rules: every stored value comes from the source itself; no metrics,
 // creators or verification results are ever invented.
+//
+// Phase 3F: authorization comes from exactly one place - the authenticated principal the
+// platform itself resolved for the request. A request with no user is not a scheduled call
+// and is not trusted as one: it is refused. Nothing a caller controls is evidence of
+// anything, because the caller wrote all of it - not a body field such as trigger_source, not
+// a query parameter, not a header, and not a claim to be the scheduler. The platform
+// documents no verifiable scheduler identity for a scheduled invocation, so the six-hour
+// workflow is paused rather than left firing into a refusal, and ingestion now runs only when
+// an administrator invokes it. The design is stated once in shared/ingestionAuth.ts.
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.52';
+import { INGESTION_AUTH_DESIGN, INGESTION_LIMITATIONS, ingestionAccess } from '../../shared/ingestionAuth.ts';
 import { PROVIDERS } from '../../shared/providers/index.ts';
 import { TREND_SEEDS, TOPIC_SEEDS, classify } from '../../shared/taxonomy.ts';
 import {
@@ -32,14 +42,48 @@ function momentumFor(total, recent) {
 export default async function (req) {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me().catch(() => null);
-    if (user && user.role !== 'admin') {
-      return Response.json({ error: 'Forbidden' }, { status: 403 });
+
+    // The one authorization input: the principal the platform resolved from the request. A
+    // missing user, a non-administrator and a caller claiming to be the scheduler all reach
+    // the same refusal here - before any record is created, any source is contacted or
+    // anything is written - so a refused request costs nothing and leaves no trace in the
+    // database beyond this function's own runtime log line.
+    let user = null;
+    try { user = await base44.auth.me(); } catch { user = null; }
+    const access = ingestionAccess(user);
+    if (!access.ok) {
+      console.log(JSON.stringify({
+        ingestion_audit: 'refused_before_any_work',
+        error_category: access.error_category,
+        status: access.status,
+        scheduler_identity_documented: INGESTION_AUTH_DESIGN.scheduler_identity_documented,
+        schedule_state: INGESTION_AUTH_DESIGN.schedule_state,
+        at: new Date().toISOString(),
+      }));
+      return Response.json({
+        ok: false,
+        error_category: access.error_category,
+        error: access.error,
+        authorization: {
+          accepted_proofs: INGESTION_AUTH_DESIGN.accepted_proofs,
+          rejected_proofs: INGESTION_AUTH_DESIGN.rejected_proofs,
+          scheduler_identity_documented: INGESTION_AUTH_DESIGN.scheduler_identity_documented,
+          schedule_state: INGESTION_AUTH_DESIGN.schedule_state,
+          fallback: INGESTION_AUTH_DESIGN.fallback,
+        },
+        model_calls: 0,
+        provider_calls: 0,
+        writes: 0,
+      }, { status: access.status });
     }
 
     let body = {};
     try { body = await req.json(); } catch { body = {}; }
-    const triggerSource = body.trigger_source || (user ? 'manual' : 'schedule');
+    // A caller-supplied trigger source is a label for the audit trail and nothing else: it
+    // grants no access and selects no behaviour. The run is recorded as what it was - a
+    // request an administrator made by hand - and the caller's own label is reported beside it.
+    const requestedTriggerSource = clip(body && body.trigger_source, 40);
+    const triggerSource = 'manual';
 
     const db = base44.asServiceRole.entities;
     const run = await db.IngestionRun.create({
@@ -219,19 +263,27 @@ export default async function (req) {
       created,
       skipped: raw.length - created,
       source_results: sourceResults,
-      note: `${candidates.length} distinct items normalised from ${sourceResults.length} sources`,
+      note: `${candidates.length} distinct items normalised from ${sourceResults.length} sources; requested by an authenticated administrator${requestedTriggerSource ? ` (caller label: ${requestedTriggerSource})` : ''}`,
     });
 
     return Response.json({
       ok: true,
       run_id: run.id,
       status,
+      authorization: {
+        ...access.operator,
+        requested_trigger_source: requestedTriggerSource,
+        trigger_source_recorded: triggerSource,
+      },
+      scheduler_identity_documented: INGESTION_AUTH_DESIGN.scheduler_identity_documented,
+      schedule_state: INGESTION_AUTH_DESIGN.schedule_state,
       fetched: raw.length,
       normalised: candidates.length,
       created,
       updated,
       skipped: raw.length - created,
       sources: sourceResults,
+      limitations: INGESTION_LIMITATIONS,
     });
   } catch (error) {
     return Response.json({ error: String((error && error.message) || error) }, { status: 500 });

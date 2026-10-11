@@ -32,8 +32,10 @@
 // beside it; independent factual verification is not performed and never claimed.
 //
 // Actions: dry_run (the batch plan, grouping, cache coverage and worst-case estimate,
-// with zero provider calls), analyze (one authorized batch), suite (the mocked-provider
-// test suite, zero provider calls), review (read stored runs, developments and claims),
+// with zero provider calls), analyze (one authorized batch), suite (Phase 3F: the
+// mocked-provider test suite, run entirely against an in-memory store with a tripwire in
+// place of the platform SDK - it consumes no authorization, creates no record and writes
+// nothing to any production entity), review (read stored runs, developments and claims),
 // source_quality (Phase 3A: read-only diagnostics over the stored catalogue - content
 // states, excerpt coverage, canonical duplicates and analysis eligibility. It takes no
 // authorization, consumes no call slot and writes nothing.)
@@ -52,6 +54,7 @@ import {
   buildDryRunReport, buildSourceView, estimateBatchWorstCase, selectAnalysable,
 } from '../../shared/devAnalysisCriteria.ts';
 import { clip, makeReserve, refusalBody } from '../../shared/pipelineSupport.ts';
+import { ANALYSIS_SUITE_COLLECTIONS, createIsolatedTestDb, createLiveCallTripwire } from '../../shared/testIsolation.ts';
 import { loadItemsForQuality, summarizeSourceQuality } from '../../shared/sourceQuality.ts';
 import { runPipeline } from '../../shared/devAnalysisPipeline.ts';
 import { runSuite } from '../../shared/devAnalysisSuite.ts';
@@ -202,8 +205,41 @@ export default async function (req) {
       });
     }
 
-    if (action !== 'dry_run' && action !== 'analyze' && action !== 'suite') {
-      return Response.json({ ok: false, error: 'unknown action; expected source_quality, calibration_suite, review, dry_run, analyze or suite' }, { status: 400 });
+    // --- Phase 3F: the mocked-provider suite, now completely isolated.
+    // It runs against an in-memory entity store and a tripwire in place of the platform SDK,
+    // so it consumes no authorization, creates no record in any production entity and cannot
+    // reach a provider. Its outcome is returned to the caller and stored nowhere: running a
+    // test writes nothing. The live batch below is unchanged and still writes its own run.
+    if (action === 'suite') {
+      const suiteRunId = clip(payload.run_id, 80) || `suite_${new Date(startedAt).toISOString()}`;
+      const isolated = createIsolatedTestDb({
+        collections: ANALYSIS_SUITE_COLLECTIONS,
+        label: 'phase2a-development-analysis-suite',
+      });
+      const tests = await runSuite({
+        db: isolated.db,
+        base44: createLiveCallTripwire('the mocked-provider development-analysis suite'),
+        runId: suiteRunId,
+      });
+      const findings = scanForSecrets(tests);
+      const status = tests.failed === 0 ? 'success' : 'failed';
+      return Response.json({
+        ok: status === 'success', action, run_id: suiteRunId, status, stage: config.stage,
+        authorization_consumed: false, record_created: false,
+        kill_switch: killSwitch, execution_enabled: config.execution_enabled,
+        provider_calls: 0, model_calls: 0, writes: 0, production_writes: 0,
+        isolation: isolated.describe(),
+        summary: {
+          cases_run: tests.cases_run, passed: tests.passed, failed: tests.failed,
+          failing: tests.cases.filter((entry) => !entry.ok).map((entry) => ({ name: entry.name, detail: entry.detail })),
+        },
+        tests, secret_findings: findings,
+        limitations: DEV_LIMITATIONS,
+      });
+    }
+
+    if (action !== 'dry_run' && action !== 'analyze') {
+      return Response.json({ ok: false, error: 'unknown action; expected source_quality, calibration_suite, suite, review, dry_run or analyze' }, { status: 400 });
     }
 
     const runId = clip(payload.run_id, 80);
@@ -253,32 +289,6 @@ export default async function (req) {
 
     const anchor = claim.anchor;
     const reserve = makeReserve(reserveCallSlot, db, anchor.id);
-
-    // --- mocked-provider suite: zero provider calls.
-    if (action === 'suite') {
-      const tests = await runSuite({ db, base44, runId });
-      const findings = scanForSecrets(tests);
-      const status = tests.failed === 0 ? 'success' : 'failed';
-      const finalAnchor = await updateRun(db, anchor.id, {
-        status, provider_calls: 0, model_calls: 0, providers: ['stub'],
-        cost_estimate_basis: 'no provider call, no usage, no cost',
-        tests: { ...tests, secret_findings: findings },
-        finished_at: new Date().toISOString(), duration_ms: Date.now() - startedAt,
-        notes: `mocked-provider suite: ${tests.passed}/${tests.cases_run} passed, 0 provider calls; authorization ${authorizationId} consumed by this run`,
-      });
-      return Response.json({
-        ok: status === 'success', action, run_id: runId, status, stage: config.stage,
-        authorization_id: authorizationId, authorization_consumed: true, kill_switch: killSwitch,
-        provider_calls: 0, model_calls: 0,
-        summary: {
-          cases_run: tests.cases_run, passed: tests.passed, failed: tests.failed,
-          failing: tests.cases.filter((entry) => !entry.ok).map((entry) => ({ name: entry.name, detail: entry.detail })),
-        },
-        tests, secret_findings: findings,
-        slots_after: { a: finalAnchor.call_slot_a, b: finalAnchor.call_slot_b },
-        limitations: DEV_LIMITATIONS, record_id: finalAnchor.id,
-      });
-    }
 
     // --- resolve the batch: explicit ids, capped, checked against stored records.
     const requestedIds = Array.isArray(payload.item_ids) ? payload.item_ids : [];

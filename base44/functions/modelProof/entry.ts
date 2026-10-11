@@ -24,8 +24,10 @@
 //   5. there are no retries. A failed or timed-out call is recorded and the
 //      attempt ends.
 //
-// Actions: live (the capped proof), contract (the safety and adapter suite against
-// stubbed transports, zero provider calls), review (compare stored proof results).
+// Actions: live (the capped proof), contract (Phase 3F: the safety and adapter suite, which
+// now runs entirely against an in-memory store with a tripwire in place of the platform SDK
+// - it consumes no authorization, creates no proof record and writes nothing to any
+// production entity), review (compare stored proof results).
 //
 // No action deletes anything. There is no delete, deleteMany or purge operation
 // anywhere in this function or in the helpers it imports, so no destructive
@@ -50,6 +52,7 @@ import {
 import {
   buildSupportQuestions, clip, createCaseRecorder, formatSourceBlock, makeReserve, refusalBody, usageTotals,
 } from '../../shared/pipelineSupport.ts';
+import { PROOF_SUITE_COLLECTIONS, createIsolatedTestDb, createLiveCallTripwire } from '../../shared/testIsolation.ts';
 
 const EXTRACTION_SCHEMA = {
   type: 'object',
@@ -626,6 +629,37 @@ export default async function (req) {
       return Response.json({ ok: false, status: 'blocked', error_category: 'run_id_required', error: 'a unique run_id of at least 8 characters is required', model_calls: 0 }, { status: 400 });
     }
 
+    // --- contract suite: isolated, and it writes nothing.
+    // It runs against an in-memory entity store and a tripwire in place of the platform SDK,
+    // so it consumes no authorization, creates no proof record and cannot reach a provider or
+    // the app's own entities. Its outcome is returned, never stored: a test creates nothing.
+    if (action === 'contract') {
+      const isolated = createIsolatedTestDb({ collections: PROOF_SUITE_COLLECTIONS, label: 'stage1-contract-suite' });
+      const contractAnchor = await persistRun(isolated.db, buildRunRecord({
+        run_id: runId, action: 'contract', status: 'running',
+        authorization_id: `isolated:${runId}`, notes: 'isolated contract anchor',
+      }));
+      const contractReserve = makeReserve(reserveCallSlot, isolated.db, contractAnchor.id);
+      const contractDeps = {
+        base44: createLiveCallTripwire('the Stage 1 contract suite'),
+        getTypesafeConnection: async () => {
+          throw new Error('the contract suite must not obtain a gateway connection');
+        },
+        reserve: contractReserve,
+      };
+      const tests = await runContractSuite(contractDeps, isolated.db, runId, contractReserve);
+      const findings = scanForSecrets(tests);
+      const suiteStatus = tests.failed === 0 ? 'success' : 'failed';
+      return Response.json({
+        ok: suiteStatus === 'success', action, run_id: runId, status: suiteStatus,
+        authorization_consumed: false, record_created: false,
+        kill_switch: killSwitch, model_calls: 0, provider_calls: 0, writes: 0, production_writes: 0,
+        isolation: isolated.describe(),
+        summary: { cases_run: tests.cases_run, passed: tests.passed, failed: tests.failed },
+        tests, secret_findings: findings, limitations: PLATFORM_LIMITATIONS,
+      });
+    }
+
     const authorizationId = clip(payload.authorization_id, 80);
     // Every gate runs before the authorization is consumed, so a refused attempt
     // leaves the one-time authorization untouched and usable.
@@ -684,29 +718,6 @@ export default async function (req) {
     };
     const deps = { base44, getTypesafeConnection, reserve };
     const callsPerProvider = {};
-
-    // --- contract suite: stubbed, no provider dispatch.
-    if (action === 'contract') {
-      const tests = await runContractSuite(deps, db, runId, reserve);
-      const findings = scanForSecrets(tests);
-      const status = tests.failed === 0 ? 'success' : 'failed';
-      const finalAnchor = await updateRun(db, anchor.id, {
-        status,
-        providers: ['stub'], requested_models: [], resolved_models: [], model_calls: 0,
-        finished_at: new Date().toISOString(), duration_ms: Date.now() - startedAt,
-        cost_estimate_basis: 'no provider call, no usage, no cost',
-        tests: { ...tests, secret_findings: findings },
-        notes: `contract suite: ${tests.passed}/${tests.cases_run} passed; 0 provider calls; authorization ${authorizationId} consumed by this run`,
-      });
-      return Response.json({
-        ok: status === 'success', action, run_id: runId, status,
-        authorization_id: authorizationId, authorization_consumed: true,
-        kill_switch: killSwitch, model_calls: 0, provider_calls: 0,
-        tests, secret_findings: findings, limitations: PLATFORM_LIMITATIONS,
-        slots_after: { a: finalAnchor.call_slot_a, b: finalAnchor.call_slot_b },
-        record_id: finalAnchor.id,
-      });
-    }
 
     // --- live proof: at most max_records stored records, one call per provider.
     let itemIds = Array.isArray(payload.item_ids) ? payload.item_ids.map((id) => clip(id, 60)).filter(Boolean) : [];
