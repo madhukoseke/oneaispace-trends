@@ -10,7 +10,7 @@ export default function FeaturedBrief({ item, context }) {
   return (
     <article className="flex flex-col rounded-[11px] border border-border/70 bg-card p-3.5 transition-colors duration-150 hover:border-border">
       <div className="flex items-center gap-2">
-        <ProvenanceLabel sourceKey={item.source_key} />
+        <ProvenanceLabel item={item} />
         <span className="truncate text-[12px] text-muted-foreground">{item.source}</span>
       </div>
 

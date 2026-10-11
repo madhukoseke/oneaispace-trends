@@ -2,13 +2,13 @@ import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import EvidenceStatus from "./EvidenceStatus";
 
-// One grouped development: the named model, tool or term that records from
-// different sources mention, what it was grouped from, and the trend those records
-// sit in. Nothing beyond the records is asserted - no momentum is claimed, because
+// One grouped development: the specific versioned identifier that records from
+// different sources carry, where it was recorded, and the trend those records sit
+// in. Nothing beyond the records is asserted - no momentum is claimed, because
 // none is measured.
 export default function TrendClusterRow({ cluster, window: windowKey, trendName }) {
   const signals = cluster.items.length;
-  const explanation = `${signals} items from ${cluster.sources.length} sources mention this in the last ${windowKey}.`;
+  const explanation = `${signals} items from ${cluster.sources.length} sources record this in the last ${windowKey}.`;
 
   return (
     <li className="border-t border-border/60 first:border-t-0">

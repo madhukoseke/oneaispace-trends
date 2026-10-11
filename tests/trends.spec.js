@@ -16,16 +16,30 @@ const { test, expect } = require("@playwright/test");
 const BASE = process.env.BASE_URL || "http://localhost:5173";
 const TRENDS = `${BASE}/trends`;
 
-const sectionOrder = async (page) => {
-  const names = ["Official & Research", "Trending Today", "All Content"];
-  const boxes = [];
-  for (const name of names) {
-    const heading = page.getByRole("heading", { name, exact: true });
-    await expect(heading).toBeVisible();
-    boxes.push((await heading.boundingBox()).y);
-  }
-  return boxes;
+// Positions of the homepage sections. Trending Today is only rendered when a
+// development actually qualifies, so it may legitimately be absent.
+const sectionPositions = async (page) => {
+  const official = page.getByRole("heading", { name: "Official & Research", exact: true });
+  const allContent = page.getByRole("heading", { name: "All Content", exact: true });
+  await expect(official).toBeVisible();
+  await expect(allContent).toBeVisible();
+  const trending = page.getByRole("heading", { name: "Trending Today", exact: true });
+  return {
+    official: (await official.boundingBox()).y,
+    trending: (await trending.count()) ? (await trending.boundingBox()).y : null,
+    allContent: (await allContent.boundingBox()).y,
+  };
 };
+
+// The hosts the first-party publisher registry approves. A badge may never appear
+// on a card from anywhere else.
+const FIRST_PARTY_HOSTS = [
+  /^openai\.com$/, /^chatgpt\.com$/, /^anthropic\.com$/, /^claude\.com$/, /^deepmind\.google$/,
+  /^deepmind\.com$/, /^blog\.google$/, /^research\.google$/, /^ai\.google\.dev$/, /^nvidia\.com$/,
+  /^blogs\.nvidia\.com$/, /^huggingface\.co$/, /^news\.mit\.edu$/, /^bair\.berkeley\.edu$/,
+  /^microsoft\.com$/, /^blogs\.microsoft\.com$/, /^ai\.meta\.com$/, /^x\.ai$/, /^mistral\.ai$/,
+  /^allenai\.org$/,
+];
 
 const noHorizontalOverflow = async (page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
@@ -37,9 +51,67 @@ test.describe("homepage hierarchy", () => {
     await expect(page.getByRole("heading", { name: "Trends", exact: true })).toBeVisible();
     await expect(page.getByLabel("Search item titles")).toBeVisible();
 
-    const [official, trending, allContent] = await sectionOrder(page);
-    expect(official).toBeLessThan(trending);
-    expect(trending).toBeLessThan(allContent);
+    const { official, trending, allContent } = await sectionPositions(page);
+    expect(official).toBeLessThan(allContent);
+    if (trending !== null) {
+      expect(official).toBeLessThan(trending);
+      expect(trending).toBeLessThan(allContent);
+    }
+  });
+
+  test("Official & Research is capped at three cards and keeps dates and original links", async ({ page }) => {
+    await page.goto(TRENDS);
+    const section = page.locator('section[aria-labelledby="official-and-research"]');
+    const cards = section.locator("article");
+    await expect(cards.first()).toBeVisible();
+    expect(await cards.count()).toBeLessThanOrEqual(3);
+
+    const card = cards.first();
+    await expect(card.locator("time")).toBeVisible();
+    const original = card.getByRole("link", { name: /Original/ });
+    expect(await original.getAttribute("href")).toMatch(/^https?:\/\//);
+    expect(await original.getAttribute("target")).toBe("_blank");
+  });
+
+  test("an Official badge only appears on a registered first-party domain", async ({ page }) => {
+    await page.goto(TRENDS);
+    const section = page.locator('section[aria-labelledby="official-and-research"]');
+    const badged = section.locator('article:has([data-provenance="Official"])');
+    const count = await badged.count();
+    expect(count).toBeGreaterThan(0);
+
+    for (let index = 0; index < count; index += 1) {
+      const href = await badged.nth(index).locator('a[href^="http"]').first().getAttribute("href");
+      const host = new URL(href).hostname.replace(/^www\./, "");
+      expect(FIRST_PARTY_HOSTS.some((pattern) => pattern.test(host))).toBe(true);
+    }
+  });
+
+  test("third-party coverage is never badged Official", async ({ page }) => {
+    await page.goto(TRENDS);
+    for (const host of ["techcrunch.com", "github.com", "news.ycombinator.com"]) {
+      const thirdParty = page.locator(`article:has(a[href*="${host}"])`);
+      if (!(await thirdParty.count())) continue;
+      expect(await thirdParty.first().locator('[data-provenance="Official"]').count()).toBe(0);
+    }
+  });
+
+  test("Trending Today lists only specific developments, or is hidden entirely", async ({ page }) => {
+    await page.goto(TRENDS);
+    const section = page.locator('section[aria-labelledby="trending-today"]');
+    if (!(await section.count())) return; // nothing qualified: the section is not rendered
+
+    const rows = section.locator("li");
+    expect(await rows.count()).toBeGreaterThan(0);
+    const banned = ["GPT", "AI", "LLM", "Agents", "Models", "Research"];
+
+    for (let index = 0; index < (await rows.count()); index += 1) {
+      const row = rows.nth(index);
+      const title = (await row.locator("span").first().innerText()).trim();
+      expect(banned).not.toContain(title);
+      await expect(row.getByText(/signals?/)).toBeVisible();
+      await expect(row.getByText("Not evaluated")).toBeVisible();
+    }
   });
 
   test("keeps one navigation row in the header and the content-type filters inside All Content", async ({ page }) => {
@@ -94,7 +166,7 @@ test.describe("filters and search", () => {
 
   test("empty state is honest and clearable", async ({ page }) => {
     await page.goto(`${TRENDS}?q=zzzzzzzzzz`);
-    await expect(page.getByText("Nothing matches these filters")).toBeVisible();
+    await expect(page.getByText("No results match these filters.")).toBeVisible();
     await page.getByRole("button", { name: "Clear filters" }).click();
     await expect(page.locator("article").first()).toBeVisible();
   });
@@ -204,9 +276,9 @@ test.describe("themes and responsiveness", () => {
   test("mobile keeps the order, stacks the search and does not overflow", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(TRENDS);
-    const [official, trending, allContent] = await sectionOrder(page);
-    expect(official).toBeLessThan(trending);
-    expect(trending).toBeLessThan(allContent);
+    const { official, trending, allContent } = await sectionPositions(page);
+    expect(official).toBeLessThan(allContent);
+    if (trending !== null) expect(official).toBeLessThan(trending);
 
     const heading = await page.getByRole("heading", { name: "Trends", exact: true }).boundingBox();
     const search = await page.getByLabel("Search item titles").boundingBox();

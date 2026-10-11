@@ -1,15 +1,24 @@
-// How a record reached the catalogue, taken from the source that published it.
-// This is provenance only: an official channel is never treated as evidence that
-// a claim inside the record is true.
+// How a record reached the catalogue, and who stood behind it.
+//
+// "Official" is decided by the first-party publisher registry (exact host plus a
+// matching source identity), never by a keyword in the record's text: a
+// TechCrunch article about OpenAI is third-party coverage, not OpenAI content.
+// Research records carry a Research label unless their first-party status is
+// established by the registry.
+//
+// Every label here is provenance only. None of them says that a claim inside the
+// record is true.
+
+import { firstPartyPublisher } from "./publishers";
 
 const KINDS = {
   official: {
     label: "Official",
-    hint: "Published by the organisation's own channel. Provenance only - not independently verified.",
+    hint: "Published by the organisation itself on its own site. Provenance only - not independently verified.",
   },
   researcher: {
-    label: "Researcher",
-    hint: "Preprint attributed to its authors. Provenance only - not independently verified.",
+    label: "Research",
+    hint: "Paper or preprint attributed to its authors. Provenance only - not independently verified.",
   },
   community: {
     label: "Community",
@@ -25,32 +34,32 @@ const KINDS = {
   },
 };
 
-const SOURCE_KINDS = {
-  openai: "official",
-  deepmind: "official",
-  "google-research": "official",
-  "google-ai": "official",
-  huggingface: "official",
-  "microsoft-research": "official",
-  nvidia: "official",
-  "mit-news": "official",
-  bair: "official",
+// Channels that are not themselves a first-party publisher.
+const CHANNELS = {
   arxiv: "researcher",
-  hackernews: "community",
+  "hacker-news": "community",
   github: "community",
   "techcrunch-ai": "press",
 };
 
-export function provenanceKind(sourceKey) {
-  return SOURCE_KINDS[String(sourceKey || "")] || "other";
+export function isResearchItem(item) {
+  if (!item) return false;
+  return item.format === "research" || item.source_key === "arxiv";
 }
 
-export function provenanceInfo(sourceKey) {
-  return KINDS[provenanceKind(sourceKey)];
-}
+export function itemProvenance(item) {
+  const publisher = firstPartyPublisher(item);
+  if (publisher) {
+    return {
+      kind: "official",
+      label: KINDS.official.label,
+      hint: `Published by ${publisher.name} itself. Provenance only - not independently verified.`,
+      publisher: publisher.name,
+    };
+  }
 
-// The two kinds the Official & Research section is built from.
-export function isBriefable(sourceKey) {
-  const kind = provenanceKind(sourceKey);
-  return kind === "official" || kind === "researcher";
+  if (isResearchItem(item)) return { ...KINDS.researcher, publisher: "" };
+
+  const kind = CHANNELS[String((item && item.source_key) || "").toLowerCase()] || "other";
+  return { ...KINDS[kind], publisher: "" };
 }

@@ -1,16 +1,17 @@
 // The two homepage feature sections, derived from records that are already
-// stored. Nothing is fetched here, and nothing is invented: a brief is an
-// official or research record that exists, and a development is either a named
-// model, tool or technique or a term that more than one record, from more than
-// one source, actually mentions.
+// stored. Nothing is fetched here and nothing is invented.
+//
+// A brief is a record whose publisher the registry confirms (Official) or a
+// paper (Research). A development is a versioned identifier that records from
+// more than one source actually carry - never a shared term such as GPT, agents
+// or research, and never a grouping inferred from vocabulary alone.
 
-import { provenanceKind } from "./provenance";
-import { entityNames } from "./entities";
-import { subjectOf } from "./subjects";
+import { itemProvenance } from "./provenance";
+import { specificEntities } from "./entities";
 
 const HOUR = 3600000;
 
-const BRIEF_MAX = 4;
+const BRIEF_MAX = 3;
 const BRIEF_MIN = 2;
 const BRIEF_PER_SOURCE = 2;
 const BRIEF_SHORT_WINDOW_HOURS = 72;
@@ -45,17 +46,17 @@ function dominantTrend(items) {
   return ranked.length ? ranked[0][0] : "";
 }
 
-// Official organisation channels come first, then author-attributed research,
-// newest first inside each group. A single source cannot fill the section.
+// First-party publishers first, then papers, newest first inside each group. No
+// source may fill the section, and no more than three records are shown.
 export function selectBriefs(items, now = Date.now()) {
   const candidates = (items || [])
     .filter((item) => {
-      const kind = provenanceKind(item.source_key);
+      const { kind } = itemProvenance(item);
       if (kind !== "official" && kind !== "researcher") return false;
       return ageHours(item, now) <= BRIEF_LONG_WINDOW_HOURS;
     })
     .sort((a, b) => {
-      const rank = (item) => (provenanceKind(item.source_key) === "official" ? 0 : 1);
+      const rank = (item) => (itemProvenance(item).kind === "official" ? 0 : 1);
       return rank(a) - rank(b) || newestFirst(a, b);
     });
 
@@ -77,6 +78,8 @@ export function selectBriefs(items, now = Date.now()) {
   return { items: picks, window: wide ? "7 days" : "72 hours" };
 }
 
+// Only versioned identifiers group records. A record that carries none of them
+// cannot contribute to a development, which is what keeps standing terms out.
 function gather(items, featured) {
   const groups = new Map();
 
@@ -87,9 +90,7 @@ function gather(items, featured) {
   };
 
   for (const item of items) {
-    for (const name of entityNames(item)) add(`entity:${name.toLowerCase()}`, name, item);
-    const subject = subjectOf(item.title);
-    if (subject) add(`subject:${subject.key}`, subject.display, item);
+    for (const name of specificEntities(item)) add(`entity:${name.toLowerCase()}`, name, item);
   }
 
   const developments = [];
@@ -120,9 +121,8 @@ function gather(items, featured) {
 }
 
 // A rolling 24 hour window, widened to 72 hours only when the day is too thin to
-// show anything, and never padded out with records that do not qualify. A
-// development also has to include at least one record that is not already shown
-// as a brief, so the two sections never restate each other.
+// show anything. Nothing is ever padded out with records that do not qualify: an
+// empty result means the section is not shown at all.
 export function buildDevelopments(items, { now = Date.now(), featured = [] } = {}) {
   const shown = new Set(featured);
   const pool = (items || []).filter((item) => ageHours(item, now) <= DEVELOPMENT_LONG_WINDOW_HOURS);
