@@ -11,8 +11,17 @@
     "claim_token": {
       "type": "string"
     },
-    "slots": {
-      "type": "object"
+    "claim_state": {
+      "type": "string",
+      "default": "open"
+    },
+    "call_slot_a": {
+      "type": "string",
+      "default": "free"
+    },
+    "call_slot_b": {
+      "type": "string",
+      "default": "free"
     },
     "note": {
       "type": "string"

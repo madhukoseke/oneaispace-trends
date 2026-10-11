@@ -10,6 +10,11 @@
 // return is stored as null with its availability flag false. No credentials, no
 // request headers and no full source bodies are ever persisted - sources are
 // referenced by record id with the minimum excerpt needed to justify a claim.
+//
+// The one-time authorization and the call budget are both consumed here, through
+// guarded updates whose reported match count is the decision. Exactly one match is
+// accepted; anything else fails closed, so nothing is dispatched on an ambiguous
+// outcome.
 
 import { PROOF_CONFIG } from './modelProofConfig.ts';
 
@@ -48,12 +53,20 @@ export function scanForSecrets(value, path = '$') {
   return findings;
 }
 
+function cleanError(value) {
+  let text = String((value && value.message) || value || 'unknown error');
+  for (const pattern of SECRET_VALUE_PATTERNS) text = text.replace(new RegExp(pattern.source, 'g'), '[redacted]');
+  return text.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+}
+
 export function buildRunRecord(fields) {
   return {
     stage: PROOF_CONFIG.stage,
     trigger: 'manual',
     retention_days: PROOF_CONFIG.retention_days,
     spend_ceiling_usd: PROOF_CONFIG.spend_ceiling_usd,
+    call_budget_per_provider: PROOF_CONFIG.max_calls_per_provider,
+    call_budget_total: PROOF_CONFIG.max_calls_total,
     model_calls: 0,
     calls_per_provider: {},
     input_item_ids: [],
@@ -63,6 +76,7 @@ export function buildRunRecord(fields) {
     // so an unavailable measurement is absent rather than invented.
     usage_available: false,
     cost_known: false,
+    resolved_model_available: false,
     // Retention is a recorded policy, not an implemented behaviour.
     retention_note: 'retention policy recorded as metadata only; no automatic deletion is implemented',
     ...fields,
@@ -74,13 +88,99 @@ export async function findRunById(db, runId) {
   return (page.items || [])[0] || null;
 }
 
+// Every claim record carrying this one-time authorization id.
+export async function findAnchors(db, authorizationId) {
+  const page = await db.ModelProofRun.filter({ authorization_id: authorizationId }, { limit: 5, sort: '-created_date' });
+  return page.items || [];
+}
+
 export async function persistRun(db, record) {
   return db.ModelProofRun.create(record);
+}
+
+export async function updateRun(db, id, fields) {
+  return db.ModelProofRun.update(id, fields);
 }
 
 export async function persistResults(db, records) {
   if (!records.length) return [];
   return db.ModelProofResult.bulkCreate(records);
+}
+
+// Consumes the one-time authorization. Two steps, in this order:
+//   1. a guarded update consumes the claim, and only a reported count of exactly
+//      one is treated as winning. This is the decision point that makes the
+//      authorization single-use, and it happens before any provider call.
+//   2. the claim is read back and accepted only when exactly one claim record
+//      exists for this authorization id and it carries this attempt's token. If
+//      two first attempts created claim records simultaneously, both fail closed
+//      here rather than one of them proceeding.
+// A refused attempt leaves the record it may have created in place: nothing is
+// deleted or overwritten, and the refusal is reported to the caller.
+export async function claimAuthorization(db, { authorizationId, seed, token }) {
+  const existing = await findAnchors(db, authorizationId);
+  if (existing.length > 1) return { ok: false, reason: 'duplicate_anchors', anchors: existing.length };
+
+  let anchor = existing[0] || null;
+  if (!anchor) {
+    anchor = await persistRun(db, { ...seed, authorization_id: authorizationId });
+    const after = await findAnchors(db, authorizationId);
+    if (after.length !== 1) return { ok: false, reason: 'duplicate_anchors', anchors: after.length };
+    anchor = after[0];
+  }
+
+  let updated = null;
+  try {
+    const result = await db.ModelProofRun.updateMany(
+      { authorization_id: authorizationId, claim_state: 'open' },
+      { $set: { claim_state: 'consumed', claim_token: token, claimed_at: new Date().toISOString() } },
+    );
+    updated = typeof result.updated === 'number' ? result.updated : null;
+  } catch (error) {
+    return { ok: false, reason: 'claim_failed', summary: cleanError(error), anchor };
+  }
+
+  if (updated !== 1) {
+    return {
+      ok: false,
+      reason: updated === 0 ? 'already_consumed' : 'ambiguous_claim',
+      updated,
+      anchor,
+    };
+  }
+
+  const verify = await findAnchors(db, authorizationId);
+  if (verify.length !== 1 || verify[0].claim_token !== token) {
+    return { ok: false, reason: 'claim_verification_failed', anchors: verify.length, anchor };
+  }
+  return { ok: true, anchor: verify[0], token, reason: 'claimed' };
+}
+
+// Consumes one call slot from the run's server-side budget. The slot starts as
+// "free"; only a guarded update that reports exactly one changed record lets the
+// call through, so a repeat attempt on the same slot is refused before dispatch.
+export async function reserveCallSlot(db, anchorId, slot, holder) {
+  const field = slot === 'a' ? 'call_slot_a' : slot === 'b' ? 'call_slot_b' : '';
+  if (!field) {
+    return { ok: false, updated: 0, slot, holder, summary: `slot "${slot}" is not one of the two configured call slots` };
+  }
+  const stamp = slot === 'a' ? 'slot_a_reserved_at' : 'slot_b_reserved_at';
+  try {
+    const result = await db.ModelProofRun.updateMany(
+      { id: anchorId, [field]: 'free' },
+      { $set: { [field]: holder, [stamp]: new Date().toISOString() } },
+    );
+    const updated = typeof result.updated === 'number' ? result.updated : null;
+    return {
+      ok: updated === 1,
+      updated,
+      slot,
+      holder,
+      summary: updated === 1 ? '' : `the server-side budget for slot "${slot}" was already consumed`,
+    };
+  } catch (error) {
+    return { ok: false, updated: null, slot, holder, summary: cleanError(error) };
+  }
 }
 
 export async function listResults(db, runId) {

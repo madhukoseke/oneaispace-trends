@@ -5,6 +5,51 @@
     "run_id": {
       "type": "string"
     },
+    "authorization_id": {
+      "type": "string"
+    },
+    "claim_state": {
+      "type": "string",
+      "default": "open"
+    },
+    "claim_token": {
+      "type": "string"
+    },
+    "claimed_at": {
+      "type": "string"
+    },
+    "authorized_by": {
+      "type": "string"
+    },
+    "execution_flag": {
+      "type": "boolean",
+      "default": false
+    },
+    "kill_switch_state": {
+      "type": "string"
+    },
+    "call_budget_per_provider": {
+      "type": "number",
+      "default": 1
+    },
+    "call_budget_total": {
+      "type": "number",
+      "default": 2
+    },
+    "call_slot_a": {
+      "type": "string",
+      "default": "free"
+    },
+    "call_slot_b": {
+      "type": "string",
+      "default": "free"
+    },
+    "slot_a_reserved_at": {
+      "type": "string"
+    },
+    "slot_b_reserved_at": {
+      "type": "string"
+    },
     "stage": {
       "type": "string"
     },
@@ -53,6 +98,13 @@
       "items": {
         "type": "string"
       }
+    },
+    "resolved_model_available": {
+      "type": "boolean",
+      "default": false
+    },
+    "resolved_model_note": {
+      "type": "string"
     },
     "model_calls": {
       "type": "number",

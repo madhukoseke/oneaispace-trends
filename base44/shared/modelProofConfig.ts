@@ -1,20 +1,27 @@
 // Stage 1 proof configuration: the kill switch, the caps and the retention window.
 //
 // execution_enabled is the master kill switch for every provider call. It is off
-// by default; Stage 1 turns it on only for the single capped manual proof and
-// turns it back off afterwards, so no recurring path can call a provider.
+// by default and no code in this app can turn it on: the only way to arm it is a
+// deliberate edit of this file by a human. Because the switch is a source-level
+// constant rather than a stored flag, it cannot be left on by a previous run that
+// forgot to reset it - a run never turns it on, and it is therefore off before and
+// after every attempt.
 //
 // These values are the whole configuration surface - there is no dashboard and no
-// public trigger. Each call additionally requires an explicit execute flag in the
-// payload, an admin caller, and a fresh run id.
+// public trigger. Each call additionally requires an admin caller, an explicit
+// execute flag, a fresh run id and an unconsumed one-time authorization id.
 
 export const PROOF_CONFIG = {
-  // Off by default. Stage 1 flips this on only for the single capped manual proof
-  // and back off immediately afterwards, so no recurring path can call a provider.
+  // Off by default and untouched by the proof itself.
   execution_enabled: false,
   stage: 'stage1-provider-proof',
   max_records: 5,
-  max_calls_per_provider: 2,
+  // One call per provider and two calls in total: the run record carries exactly
+  // two call slots (call_slot_a, call_slot_b), one per provider, and each slot is
+  // consumed by an atomic guarded update before its dispatch. Because only two
+  // slots exist, the total cap holds structurally as well as numerically.
+  max_calls_per_provider: 1,
+  max_calls_total: 2,
   max_claims: 8,
   max_claims_per_item: 2,
   max_excerpt_chars: 700,
@@ -25,12 +32,32 @@ export const PROOF_CONFIG = {
   retention_days: 30,
   timeout_ms: 60000,
   max_stored_output_items: 8,
+  require_authorization: true,
 
   // The two genuinely distinct models, on two distinct providers, with two
   // distinct tasks. Model A extracts what the stored records state; Model B is a
   // structured evaluation model that judges support from the same text.
   model_a: { provider: 'base44-core', model: 'gpt_6_luna', task_kind: 'extraction' },
   model_b: { provider: 'typesafe', model: 'jev', task_kind: 'support_evaluation' },
+};
+
+// Platform capabilities this proof cannot guarantee. These are recorded here, and
+// returned with every run, so no report can imply a guarantee that does not exist.
+export const PLATFORM_LIMITATIONS = {
+  atomicity:
+    'Entity compare-and-swap is an observed behaviour, not a documented guarantee: a guarded single-record update reports how many records it changed, and tests observed exactly one winner under concurrency. Every claim and every call slot therefore fails closed whenever that reported count is not exactly 1.',
+  duplicate_anchors:
+    'Two simultaneous first attempts for one authorization id can each create a claim record. Both then fail closed, so the attempt is refused rather than executed twice; a fresh authorization id is required to try again.',
+  invoke_llm_cancellation:
+    'Not supported: the Core InvokeLLM integration documents no abort signal, so a timed-out call cannot cancel the platform request. The app stops waiting and discards the late response.',
+  invoke_llm_retry:
+    'Not documented and not observable from the app: this app issues exactly one app-level dispatch per reserved call slot, but it cannot verify how many upstream requests the platform makes internally.',
+  typesafe_cancellation:
+    'Requested through the AI SDK abortSignal parameter; whether the transport honours it end to end has not been verified by a live call.',
+  typesafe_retry: 'Disabled explicitly with maxRetries: 0, a documented option of the evaluation SDK.',
+  resolved_model:
+    'Neither provider is documented to return a resolved model identifier. It is recorded only when a call actually returns one, and is never inferred from the requested name.',
+  retention: 'Retention is recorded as metadata only. No delete or purge operation exists anywhere in this path.',
 };
 
 // Published third-party list prices per million tokens, used only to size a

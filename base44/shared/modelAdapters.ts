@@ -10,6 +10,10 @@
 // error. Nothing is inferred from a model name, and unavailable measurements stay
 // null rather than being filled in.
 //
+// Before any dispatch, the caller's server-side budget is consumed: when a
+// reserve function is supplied it must succeed, or the call is refused with zero
+// dispatches. The reservation is the guard, not the transport.
+//
 // The transport is injectable so contract, timeout and error tests can run against
 // a stub with zero provider calls.
 
@@ -17,6 +21,7 @@ import { experimental_evaluate as evaluate } from 'npm:ai@7.0.105';
 import { createTypeSafeAi } from 'npm:@ai-sdk/typesafe-ai@3.0.4';
 
 export const PROVIDERS = ['base44-core', 'typesafe'];
+export const CALL_SLOTS = ['a', 'b'];
 
 // The authoritative current catalog. "automatic" is documented but never used by
 // the proof, which needs two explicit, distinct models.
@@ -85,12 +90,19 @@ function envelope(base) {
   };
 }
 
-function withTimeout(promise, timeoutMs) {
-  // Enforced at this layer: the platform request itself is not aborted, so a late
-  // provider response is discarded rather than cancelled. Recorded as a limit.
+function withTimeout(promise, timeoutMs, controller) {
+  // Enforced at this layer. Cancellation is requested when the runtime exposes
+  // AbortController and the transport accepts a signal; whether an in-flight
+  // provider request can really be cancelled is provider-specific and is recorded
+  // in PLATFORM_LIMITATIONS rather than assumed here.
   let timer = null;
   const guard = new Promise((resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(`call timed out after ${timeoutMs}ms`)), timeoutMs);
+    timer = setTimeout(() => {
+      if (controller) {
+        try { controller.abort(); } catch { /* the transport decides how to react */ }
+      }
+      reject(new Error(`call timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
   });
   return Promise.race([promise, guard]).finally(() => clearTimeout(timer));
 }
@@ -104,6 +116,23 @@ function extractUsage(value) {
     input_tokens: typeof input === 'number' ? input : null,
     output_tokens: typeof output === 'number' ? output : null,
   };
+}
+
+// A resolved identifier is returned only when the provider's own response carries
+// one. These locations are unverified probing sites, not a documented contract:
+// when none of them holds a string, the resolved model is recorded as unavailable.
+function extractResolvedModel(value) {
+  if (!value || typeof value !== 'object') return null;
+  const candidates = [
+    value.response && value.response.modelId,
+    value.response && value.response.model,
+    value.providerMetadata && value.providerMetadata.typesafe && value.providerMetadata.typesafe.model,
+    value.providerMetadata && value.providerMetadata.model,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return null;
 }
 
 // Real transport. Credentials are never read here: the caller passes the gateway
@@ -125,15 +154,18 @@ async function liveTransport(request, deps) {
       maxRetries: 0, // billed requests are never replayed automatically
       state: request.state,
       questions: request.questions,
+      ...(request.signal ? { abortSignal: request.signal } : {}),
     });
     const confidence = (result.providerMetadata && result.providerMetadata.typesafe && result.providerMetadata.typesafe.confidence) || null;
     return {
       output: { answers: result.answers || null, confidence },
       usage: extractUsage(result.usage),
-      resolved_model: null,
+      resolved_model: extractResolvedModel(result),
     };
   }
 
+  // InvokeLLM returns text only: it documents no resolved model id and accepts no
+  // cancellation signal, so both stay unavailable for this provider.
   const output = await deps.base44.asServiceRole.integrations.Core.InvokeLLM({
     prompt: request.prompt,
     model: request.model,
@@ -142,8 +174,9 @@ async function liveTransport(request, deps) {
   return { output, usage: null, resolved_model: null };
 }
 
-// The one entry point. Validation and caps run before any dispatch, so an invalid
-// provider or model costs nothing and a call budget is never exceeded.
+// The one entry point. Validation, the budget reservation and the caps all run
+// before any dispatch, so an invalid provider, an invalid model or an exhausted
+// slot costs nothing and a call budget is never exceeded.
 export async function callModel(request, deps = {}) {
   const provider = String(request.provider || '');
   const model = String(request.model || '');
@@ -163,12 +196,32 @@ export async function callModel(request, deps = {}) {
     return envelope({ ...base, error: { category: 'call_cap', summary: `call cap of ${cap} reached for provider "${provider}"` } });
   }
 
+  // Named call slot and its reservation: consumed server-side before the
+  // transport runs, so a second attempt on the same slot never dispatches.
+  const slot = String(request.call_slot || '');
+  if (typeof deps.reserve === 'function') {
+    if (!CALL_SLOTS.includes(slot)) {
+      return envelope({ ...base, error: { category: 'slot_required', summary: `a call slot of ${CALL_SLOTS.join(' or ')} is required before a provider call` } });
+    }
+    const reservation = await deps.reserve({ ...request, slot, provider, model, requested_model: model });
+    if (!reservation || reservation.ok !== true) {
+      return envelope({
+        ...base,
+        error: {
+          category: 'call_budget_exhausted',
+          summary: (reservation && reservation.summary) || `the server-side call budget for slot "${slot}" was already consumed`,
+        },
+      });
+    }
+  }
+
   const timeoutMs = Number(request.timeout_ms) || 60000;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const startedAt = Date.now();
   const transport = deps.transport || ((req) => liveTransport(req, deps));
 
   try {
-    const raw = await withTimeout(transport(request), timeoutMs);
+    const raw = await withTimeout(transport({ ...request, call_slot: slot, signal: controller ? controller.signal : null }), timeoutMs, controller);
     return envelope({
       ...base,
       ok: true,
