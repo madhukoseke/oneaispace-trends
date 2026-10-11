@@ -35,6 +35,12 @@
     "reported_kind": {
       "type": "string"
     },
+    "kind_basis": {
+      "type": "string"
+    },
+    "research_evidence": {
+      "type": "object"
+    },
     "title": {
       "type": "string"
     },

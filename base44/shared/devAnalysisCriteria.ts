@@ -19,11 +19,12 @@
 // source. Cost is only ever an estimate, per provider, from that provider's own price
 // estimate and that call's returned usage.
 
-import { DEV_ANALYSIS_CONFIG, DEVELOPMENT_KINDS, RELEASE_VERBS } from './devAnalysisConfig.ts';
+import { CONTENT_STATES, DEV_ANALYSIS_CONFIG, DEVELOPMENT_KINDS, RELEASE_VERBS } from './devAnalysisConfig.ts';
 import { normalizeForMatch, quoteMatchInRecord } from './modelProofCriteria.ts';
 import { canonicalKey } from './normalize.ts';
 import {
-  familyTokens, hashString, numericDesignatorTokens, sourceRecordText, sourceText, versionedTokens,
+  contentState, familyTokens, hashString, numericDesignatorTokens, researchEvidenceOf, sourceRecordText,
+  sourceText, versionedTokens,
 } from './devAnalysisGrouping.ts';
 
 export const CLAIM_REJECTION_REASONS = {
@@ -39,11 +40,58 @@ export const CLAIM_REJECTION_REASONS = {
 
 export const DEVELOPMENT_REJECTION_REASONS = {
   empty_title: 'the development carried no title',
-  no_identifiable_event: 'the title and stored text name no identifiable event (no named model, version or release language)',
+  no_identifiable_event: 'the title and stored text name no identifiable event (no named model, version, artefact or release language)',
   no_valid_claims: 'no claim survived validation, so the development has no supporting source record',
   duplicate_development: 'another development in this batch already covers the same normalised title',
   over_development_cap: 'the batch reached its development cap',
 };
+
+export const CONTENT_EXCLUSION_REASONS = {
+  no_text: 'the stored record has neither a title nor an excerpt, so there is no stored text to analyse and nothing is fetched or generated to fill it',
+  title_only: 'the stored record has a title but no excerpt, so an evidence quote could only ever be its own stored title; it is not analysed unless an administrator explicitly includes it',
+};
+
+// Which records of a batch may be sent to a model at all, decided from the stored fields.
+// A record with no stored text is never sent. A record with a title and no excerpt is not
+// sent either, unless the request carries the explicit administrator override - and even
+// then it is analysed with the stored title alone. No excerpt is fetched, expanded or
+// generated at any point, so a gap in the stored record stays a reported gap.
+export function selectAnalysable(items, { includeTitleOnly = false } = {}) {
+  const rows = (items || []).map((item) => ({ item, content_state: contentState(item) }));
+  const included = [];
+  const excluded = [];
+
+  for (const row of rows) {
+    const overridden = includeTitleOnly && row.content_state === CONTENT_STATES.title_only;
+    if (row.content_state === CONTENT_STATES.has_excerpt || overridden) {
+      included.push(row.item);
+      continue;
+    }
+    excluded.push({
+      item_id: row.item.id,
+      content_state: row.content_state,
+      title: cleanText(row.item.title, 140),
+      source: cleanText(row.item.source, 80),
+      reason_code: `insufficient_stored_text_${row.content_state}`,
+      reason: CONTENT_EXCLUSION_REASONS[row.content_state],
+    });
+  }
+
+  return {
+    items: included,
+    excluded,
+    override_used: included.some((item) => contentState(item) === CONTENT_STATES.title_only),
+    counts: {
+      requested: rows.length,
+      analysed: included.length,
+      excluded: excluded.length,
+      no_text: rows.filter((row) => row.content_state === CONTENT_STATES.no_text).length,
+      title_only: rows.filter((row) => row.content_state === CONTENT_STATES.title_only).length,
+      has_excerpt: rows.filter((row) => row.content_state === CONTENT_STATES.has_excerpt).length,
+    },
+    note: 'content_state is read from the stored fields; a missing excerpt is reported, never filled in',
+  };
+}
 
 export const EVIDENCE_STATES = {
   source_states_claim: 'checked here, in code: the evidence quote is present verbatim in the stored record text',
@@ -78,6 +126,7 @@ export function buildSourceView(items, config = DEV_ANALYSIS_CONFIG) {
     published_at: item.published_at || '',
     canonical_url: item.canonical_url || '',
     title: cleanText(item.title, 200),
+    content_state: contentState(item),
     text: sourceText(item, config.max_source_text_chars),
     record_text: normalizeForMatch(sourceRecordText(item)),
     canonical_key: canonicalKey(item.canonical_url),
@@ -124,7 +173,16 @@ export function identifiableEventOf(title, quotes) {
   if (designators.length && RELEASE_VERBS.test(text)) {
     return { identifiable: true, basis: 'version-bearing token with release language', tokens: designators };
   }
-  return { identifiable: false, basis: 'no named model, version or release language in the title or evidence', tokens: [] };
+  const research = researchEvidenceOf(title, quotes);
+  if (research.eligible) {
+    return {
+      identifiable: true,
+      basis: `named artefact with publication language (${research.quoted_artifact_tokens.join(', ')})`,
+      tokens: research.quoted_artifact_tokens,
+      research_evidence: research,
+    };
+  }
+  return { identifiable: false, basis: 'no named model, version, artefact or release language in the title or evidence', tokens: [] };
 }
 
 // Phase 1 of the pipeline: turn the extraction output into claim candidates, each one
@@ -250,7 +308,6 @@ export function collectClaims({ rawDevelopments, sources, config = DEV_ANALYSIS_
     }
 
     const reportedKind = cleanText(candidate && candidate.kind, 40).toLowerCase().replace(/[\s-]+/g, '_');
-    const kind = DEVELOPMENT_KINDS.includes(reportedKind) ? reportedKind : 'unspecified';
 
     // Model identifiers are kept only when they actually appear in the supplied source
     // text: an identifier the records never mention is dropped and counted, never stored
@@ -282,6 +339,19 @@ export function collectClaims({ rawDevelopments, sources, config = DEV_ANALYSIS_
       if (!modelVersions.includes(version)) modelVersions.push(version);
     }
 
+    // The kind reflects the actual contribution, decided in code from the stored text: a
+    // record whose stored text names an artefact and frames it as a research contribution is
+    // classified as research even when it also mentions a versioned model, because the paper,
+    // method, framework, system or dataset is what the record is about. Everything else keeps
+    // the kind the extraction model reported, and a kind outside the recorded list is stored
+    // as unspecified rather than invented into one.
+    const research = researchEvidenceOf(title, claims.map((claim) => claim.evidence_quote));
+    const reportedKindKnown = DEVELOPMENT_KINDS.includes(reportedKind);
+    const kind = research.eligible ? 'research' : (reportedKindKnown ? reportedKind : 'unspecified');
+    const kindBasis = research.eligible
+      ? `research contribution from the stored text: ${research.reason}`
+      : `kind as reported by the extraction model${reportedKindKnown ? '' : ' (outside the recorded kinds, so stored as unspecified)'}`;
+
     const event = identifiableEventOf(title, claims.map((claim) => claim.evidence_quote));
     if (!event.identifiable) reasons.push(`${DEVELOPMENT_REJECTION_REASONS.no_identifiable_event}: ${event.basis}`);
 
@@ -308,6 +378,8 @@ export function collectClaims({ rawDevelopments, sources, config = DEV_ANALYSIS_
       why_it_matters: cleanText(candidate && candidate.why_it_matters, 300),
       kind,
       reported_kind: reportedKind,
+      kind_basis: kindBasis,
+      research_evidence: research,
       model_identifiers: modelIdentifiers,
       model_versions: modelVersions,
       dropped_model_identifiers: droppedIdentifiers,
@@ -405,6 +477,8 @@ export function finalizeDevelopments({ claimCandidates, evaluations, sources, ru
       group_basis: supportingItemIds.length > 1 ? 'multiple_supporting_sources' : 'single_supporting_source',
       kind: candidate.kind,
       reported_kind: candidate.reported_kind,
+      kind_basis: candidate.kind_basis || '',
+      research_evidence: candidate.research_evidence || null,
       title: candidate.title,
       summary: candidate.summary,
       why_it_matters: candidate.why_it_matters,
@@ -540,7 +614,8 @@ export function evaluateBatchCriteria({ callA, callB, developments, claims, sour
 // spend would be. It is built by the same code the live batch uses, and it is produced
 // without any provider call at all.
 export function buildDryRunReport({
-  selection, requestedIds, duplicateIds, missingIds, items, sources, grouping, plan, estimate, cacheEntriesRead, config = DEV_ANALYSIS_CONFIG,
+  selection, requestedIds, duplicateIds, missingIds, items, sources, grouping, plan, estimate, cacheEntriesRead,
+  content = null, config = DEV_ANALYSIS_CONFIG,
 }) {
   const sourceById = new Map(sources.map((source) => [source.item_id, source]));
   const coveredIds = new Set(plan.covered.map((row) => row.item_id));
@@ -548,6 +623,7 @@ export function buildDryRunReport({
   return {
     dry_run: true,
     selection,
+    content: content || null,
     batch: {
       requested_ids: requestedIds || [],
       resolved_records: items.length,

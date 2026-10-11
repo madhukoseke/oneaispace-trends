@@ -20,9 +20,10 @@
 // is never sent to a model twice.
 
 import { canonicalKey, clip, titleKey } from './normalize.ts';
-import { GENERIC_GROUPING_TOKENS, NAMED_AI_FAMILIES, RELEASE_VERBS } from './devAnalysisConfig.ts';
-
-const MIN_THIN_TEXT_CHARS = 40;
+import { normalizeForMatch } from './modelProofCriteria.ts';
+import {
+  CONTENT_STATES, GENERIC_GROUPING_TOKENS, NAMED_AI_FAMILIES, RELEASE_VERBS, RESEARCH_PUBLICATION_PHRASES,
+} from './devAnalysisConfig.ts';
 
 // Stable, order-independent 64-bit-ish digest (two FNV-1a style lanes). Used for
 // fingerprints and group keys, which must be reproducible across runs.
@@ -173,6 +174,81 @@ export function variantAnchors(text) {
   return Array.from(anchors).sort();
 }
 
+function isModelToken(lower) {
+  return NAMED_AI_FAMILIES.some((family) => lower === family
+    || new RegExp(`^${escapePattern(family)}[ .-]?\\d`).test(lower));
+}
+
+// A named artefact a record can be *about*: a paper's own name, a method, framework, system
+// or dataset. Only distinctive name-shaped words from the title count, and model
+// identifiers, the variant words written after a model identifier, company names and
+// generic vocabulary are all excluded - so "Gemini 3.8 Flash" contributes no artefact while
+// "Quine", "MERIT" or "Ecology" does.
+export function researchArtifactTokens(title) {
+  const raw = String(title || '');
+  if (!raw.trim()) return [];
+  const variantWords = new Set();
+  for (const entry of namedIdentifiers(raw)) for (const word of entry.variant) variantWords.add(word);
+
+  const tokens = raw.split(/\s+/)
+    .map((token) => token.replace(/^[^\w.+#-]+/, '').replace(/[^\w.+#-]+$/, ''))
+    .filter(Boolean);
+
+  const found = new Set();
+  tokens.forEach((token, index) => {
+    if (!/^[A-Za-z][A-Za-z0-9.'+-]*$/.test(token)) return;
+    const lower = token.toLowerCase().replace(/[.+#-]+$/, '');
+    if (lower.length < 3) return;
+    const shapeLooksNamed = /[A-Z]/.test(token.slice(1)) || /^[A-Z][a-z]{2,}$/.test(token) || /[-.]/.test(token);
+    if (!shapeLooksNamed) return;
+    if (index === 0 && /ing$/.test(lower)) return;
+    if (CONNECTOR_WORDS.has(lower) || COMPANY_WORDS.has(lower)) return;
+    if (GENERIC_GROUPING_TOKENS.has(lower) || NAMED_AI_FAMILIES.includes(lower)) return;
+    if (isModelToken(lower) || variantWords.has(lower)) return;
+    found.add(token);
+  });
+  return Array.from(found).sort();
+}
+
+// The publication language that frames a named artefact as a research contribution. It is
+// read from the stored text the evidence quote comes from, so a headline alone never makes
+// a record research.
+export function publicationLanguageOf(text) {
+  const normalized = normalizeForMatch(text);
+  if (!normalized) return [];
+  return RESEARCH_PUBLICATION_PHRASES.filter((phrase) => normalized.includes(phrase)).sort();
+}
+
+// Research eligibility, decided in code: a named artefact from the title, publication
+// language in the supplied stored text, and the artefact itself present in that same text.
+// An artefact named only in a headline, or text with no publication language at all, is not
+// eligible. This makes a record eligible for analysis; it never makes it accepted, which
+// still requires a valid claim with a verbatim evidence quote.
+export function researchEvidenceOf(title, quotes) {
+  const artifacts = researchArtifactTokens(title);
+  const text = (quotes || []).join(' ').trim();
+  const publication = publicationLanguageOf(text);
+  const base = { artifact_tokens: artifacts, publication_language: publication };
+
+  if (!artifacts.length) {
+    return { ...base, eligible: false, reason_code: 'no_named_artifact', reason: 'the title names no paper, method, framework, system or dataset' };
+  }
+  if (!publication.length) {
+    return { ...base, eligible: false, reason_code: 'no_publication_language', reason: 'the stored text carries no publication language, so the record is not framed as a research contribution' };
+  }
+  const quoted = artifacts.filter((artifact) => normalizeForMatch(text).includes(normalizeForMatch(artifact)));
+  if (!quoted.length) {
+    return { ...base, eligible: false, reason_code: 'artifact_not_in_evidence', reason: 'the named artefact appears in the title but not in the stored text the evidence is taken from' };
+  }
+  return {
+    ...base,
+    eligible: true,
+    reason_code: 'named_artifact_with_publication_language',
+    reason: 'the stored text names this artefact and frames it as a research contribution',
+    quoted_artifact_tokens: quoted,
+  };
+}
+
 // Named identifiers with the variant words each carried, for the report: a reader can see
 // which variant each side of a refused link named.
 export function namedIdentifiers(text) {
@@ -233,11 +309,28 @@ export function identifiableEvent(item) {
   if (designators.length && RELEASE_VERBS.test(text)) {
     return { identifiable: true, basis: 'version-bearing token with release language', tokens: designators };
   }
-  return { identifiable: false, basis: 'no named model, version or release language in the stored text', tokens: [] };
+  const research = researchEvidenceOf(item && item.title, [text]);
+  if (research.eligible) {
+    return {
+      identifiable: true,
+      basis: 'named artefact with publication language',
+      tokens: research.quoted_artifact_tokens,
+      research_evidence: research,
+    };
+  }
+  return { identifiable: false, basis: 'no named model, version, artefact or release language in the stored text', tokens: [] };
 }
 
-export function isThin(item) {
-  return sourceText(item).length < MIN_THIN_TEXT_CHARS;
+// What the stored record actually contains, decided from the stored fields alone and never
+// from a character threshold: no stored text at all, a title with no excerpt, or a record
+// with an excerpt. Nothing is fetched, expanded or generated to fill a gap - a missing
+// excerpt stays missing and is reported as such.
+export function contentState(item) {
+  const title = String((item && item.title) || '').trim();
+  const excerpt = String((item && item.excerpt) || '').trim();
+  if (!title && !excerpt) return CONTENT_STATES.no_text;
+  if (!excerpt) return CONTENT_STATES.title_only;
+  return CONTENT_STATES.has_excerpt;
 }
 
 function dedupeByCanonicalUrl(items) {
@@ -356,7 +449,8 @@ export function groupCandidates(items) {
       shared_anchors: anchors,
       shared_tokens: tokens,
       shared_title_key: titles[0] || '',
-      all_records_thin: group.every(isThin),
+      content_states: group.map((item) => contentState(item)),
+      all_records_insufficient_text: group.every((item) => contentState(item) !== CONTENT_STATES.has_excerpt),
       identifiable_event: group.some((item) => identifiableEvent(item).identifiable),
       per_item_event_basis: group.map((item) => ({ item_id: item.id, ...identifiableEvent(item) })),
     };
@@ -426,7 +520,7 @@ export function groupCandidates(items) {
     links,
     item_count: items.length,
     records_analysed: kept.length,
-    method: 'deterministic: canonical url dedupe, then the same named model identifier together with the same variant phrase written after it, then an identical normalised title; a shared family or version number alone never links two records, and generic vocabulary never links two records',
+    method: 'deterministic: canonical url dedupe, then the same named model identifier together with the same variant phrase written after it, then an identical normalised title; a shared family or version number alone never links two records, generic vocabulary never links two records, and a named research artefact links nothing by itself',
   };
 }
 

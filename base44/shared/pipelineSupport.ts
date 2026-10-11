@@ -104,5 +104,9 @@ export function buildSupportQuestions(claims) {
 // needs to detect a citation that does not match the stored record.
 export function formatSourceBlock(sources, options = {}) {
   const includeUrl = options.includeUrl === true;
-  return (sources || []).map((source) => `[${source.item_id}] source=${source.source} published_at=${source.published_at || 'unknown'}${includeUrl ? ` url=${source.canonical_url}` : ''} :: ${source.text}`);
+  const includeContentState = options.includeContentState === true;
+  return (sources || []).map((source) => {
+    const state = includeContentState && source.content_state ? ` content_state=${source.content_state}` : '';
+    return `[${source.item_id}] source=${source.source} published_at=${source.published_at || 'unknown'}${state}${includeUrl ? ` url=${source.canonical_url}` : ''} :: ${source.text}`;
+  });
 }

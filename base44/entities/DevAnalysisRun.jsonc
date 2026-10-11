@@ -117,6 +117,9 @@
         "type": "string"
       }
     },
+    "content_exclusions": {
+      "type": "object"
+    },
     "grouping": {
       "type": "object"
     },
@@ -159,6 +162,13 @@
     "calls_per_provider": {
       "type": "object"
     },
+    "call_details": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "default": []
+    },
     "usage_available": {
       "type": "boolean",
       "default": false
@@ -181,6 +191,9 @@
     },
     "spend_ceiling_usd": {
       "type": "number"
+    },
+    "rejection_report": {
+      "type": "object"
     },
     "developments_accepted": {
       "type": "number",

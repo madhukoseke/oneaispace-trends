@@ -17,6 +17,8 @@
 // out of the stage-filtered review list.
 
 import { DEV_ANALYSIS_CONFIG } from './devAnalysisConfig.ts';
+import { perCallCost } from './modelProofCriteria.ts';
+import { clip } from './pipelineSupport.ts';
 
 export const DEV_RETENTION_NOTE = 'retention recorded as metadata only; no automatic deletion is implemented';
 
@@ -206,6 +208,84 @@ export async function reserveCallSlot(db, anchorId, slot, holder) {
   } catch (error) {
     return { ok: false, updated: null, slot, holder, summary: cleanError(error) };
   }
+}
+
+// One entry per provider call attempt, in call order: what that call actually produced.
+// A value the provider did not return stays null - a latency that was not measured, a usage
+// figure that was not returned, an estimate that cannot be made from the returned usage -
+// and is never filled in from another call, another provider or an assumption.
+export function buildCallDetails(entries, priceTable = DEV_ANALYSIS_CONFIG.price_table) {
+  return (entries || [])
+    .filter((entry) => entry && entry.call)
+    .map((entry) => {
+      const call = entry.call;
+      const cost = perCallCost({ call, role: entry.role }, priceTable);
+      const dispatched = Boolean(call.dispatches);
+      const usage = call.usage_available && call.usage ? call.usage : null;
+      return {
+        role: entry.role || '',
+        slot: entry.slot || '',
+        provider: call.provider || '',
+        requested_model: call.requested_model || '',
+        resolved_model: typeof call.resolved_model === 'string' && call.resolved_model ? call.resolved_model : null,
+        task_kind: entry.task_kind || '',
+        status: dispatched ? (call.ok === true ? 'success' : call.timed_out ? 'timed_out' : 'failed') : 'not_dispatched',
+        dispatches: call.dispatches || 0,
+        latency_ms: dispatched && typeof call.latency_ms === 'number' ? call.latency_ms : null,
+        timeout_ms: typeof entry.timeout_ms === 'number' ? entry.timeout_ms : null,
+        usage_available: Boolean(usage),
+        usage,
+        input_tokens: usage ? (usage.input_tokens ?? null) : null,
+        output_tokens: usage ? (usage.output_tokens ?? null) : null,
+        estimate_available: cost.estimate_usd !== null,
+        cost_estimate_usd: cost.estimate_usd,
+        estimate_basis: 'this call\'s own provider price estimate applied to the token usage that same call returned',
+        estimate_unavailable_reason: cost.unavailable_reason,
+        error_category: call.error ? call.error.category : null,
+        error_summary: call.error ? call.error.summary : null,
+      };
+    });
+}
+
+// Structured rejection detail, so a batch can be audited after the fact without replaying
+// it: every rejected claim and development keeps its reason code, and the report states when
+// the stored list was truncated rather than quietly dropping entries.
+export const REJECTION_SAMPLE_CAP = 20;
+
+export function buildRejectionReport(collected) {
+  const rejectedClaims = (collected && collected.rejected_claims) || [];
+  const rejectedDevelopments = (collected && collected.rejected_developments) || [];
+
+  return {
+    counts: {
+      raw_developments: (collected && collected.counts && collected.counts.raw_developments) || 0,
+      raw_claims: (collected && collected.counts && collected.counts.raw_claims) || 0,
+      accepted_claims: (collected && collected.counts && collected.counts.accepted_claims) || 0,
+      rejected_claims: rejectedClaims.length,
+      rejected_developments: rejectedDevelopments.length,
+      fabricated_citations: (collected && collected.counts && collected.counts.fabricated_citations) || 0,
+      dropped_model_identifiers: (collected && collected.counts && collected.counts.dropped_model_identifiers) || 0,
+    },
+    sample_cap: REJECTION_SAMPLE_CAP,
+    rejected_claims_truncated: rejectedClaims.length > REJECTION_SAMPLE_CAP,
+    rejected_developments_truncated: rejectedDevelopments.length > REJECTION_SAMPLE_CAP,
+    rejected_claims: rejectedClaims.slice(0, REJECTION_SAMPLE_CAP).map((row) => ({
+      development_title: clip(row.development_title, 160),
+      item_id: row.item_id || null,
+      claim: clip(row.claim, 200),
+      evidence_quote: clip(row.evidence_quote, 240),
+      reason_code: row.reason_code || '',
+      reason: clip(row.reason, 240),
+    })),
+    rejected_developments: rejectedDevelopments.slice(0, REJECTION_SAMPLE_CAP).map((row) => ({
+      title: clip(row.title, 160),
+      kind: row.kind || '',
+      reported_kind: row.reported_kind || '',
+      claim_candidates: row.claim_candidates || 0,
+      reasons: (row.reasons || []).map((reason) => clip(reason, 240)),
+    })),
+    note: 'each rejected item keeps its own reason code; nothing is stored because a model proposed it',
+  };
 }
 
 // Deletion is deliberately absent. Nothing in this module removes a record, and there is

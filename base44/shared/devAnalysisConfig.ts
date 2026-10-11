@@ -51,6 +51,13 @@ export const DEV_ANALYSIS_CONFIG = {
   require_authorization: true,
   retention_days: 30,
 
+  // A stored record with no excerpt is not sent to a model by default: its only stored
+  // text is its title, so nothing can be quoted from an excerpt that does not exist. The
+  // one override is an explicit administrator flag on the request. Even then the record
+  // is analysed with its stored title alone - no excerpt is fetched, generated, expanded
+  // or inferred, in the prompt or in the stored rows.
+  analyse_title_only_by_default: false,
+
   // The two genuinely distinct models, on two distinct providers, with two distinct
   // tasks. Model A extracts developments from the stored source text; Model B is the
   // structured evaluation model that judges whether the supplied excerpts support the
@@ -94,6 +101,30 @@ export const GENERIC_GROUPING_TOKENS = new Set([
   'experimental', 'version', 'support', 'feature', 'features', 'workflow', 'workflows',
 ]);
 
+// The three deterministic content states of a stored source record. They are read from
+// the stored fields themselves, never from a character count: a record whose excerpt
+// happens to be short is still a record with an excerpt, and a record with no excerpt is
+// never given one.
+export const CONTENT_STATES = {
+  no_text: 'no_text',
+  title_only: 'title_only',
+  has_excerpt: 'has_excerpt',
+};
+
+// Publication language that can frame a named artefact as a research contribution. A
+// product announcement that merely says "available" or "released" carries none of these,
+// which is what keeps a product release from being filed as research. The phrase must
+// appear in the stored text the evidence quote is taken from, so a headline alone cannot
+// make a record research.
+export const RESEARCH_PUBLICATION_PHRASES = [
+  'preprint', 'paper', 'journal', 'proceedings', 'arxiv', 'thesis', 'dissertation',
+  'technical report', 'white paper', 'whitepaper', 'systematic review', 'survey',
+  'we propose', 'we present', 'we introduce', 'we describe', 'we develop',
+  'this paper', 'this study', 'this report', 'this work',
+  'our method', 'our framework', 'our system', 'our dataset', 'our approach', 'our analysis',
+  'benchmark suite', 'benchmark study', 'empirical study', 'empirical evaluation',
+];
+
 // Distinctive AI-family names. A family followed by a version number ("gpt-6",
 // "qwen3", "llama 3.2") is specific enough to link two records as candidates for the
 // same development; a bare family name alone is not, and is only used, together with a
@@ -127,6 +158,10 @@ export const DEV_LIMITATIONS = {
     'Idempotency is keyed on a fingerprint of each source record (id, canonical url, publication timestamp, title, excerpt). A record whose stored text is unchanged is covered by its earlier analysis and is not sent to a model again; a record whose text changes has a new fingerprint and is analysed afresh. Coverage means "this exact stored text was analysed before", not "this development is unchanged in the world".',
   grouping:
     'Candidate grouping is deterministic: records are linked by a shared named model or version identifier, or by an identical normalised title, and records that share only generic vocabulary are deliberately left apart. The grouping is a candidate list for the extraction step, not a claim about the world.',
+  content_state:
+    'A record whose stored excerpt is missing is reported as title_only and is not analysed unless an administrator explicitly includes it; a record with no stored text at all is never analysed. Nothing is fetched from the original page, and no excerpt is generated, expanded or inferred to replace a missing one, so such a record can only ever be quoted as its own stored title.',
+  research_classification:
+    'A research development is accepted only when the stored text names a paper, method, framework, system or dataset, carries publication language, and a verified evidence quote contains that artefact. The kind reflects that contribution even when a versioned model is also mentioned. This makes a record eligible for analysis; it never makes it verified, and independent_verification stays not_performed.',
   extraction_recall:
     'A development that the models do not return is simply absent. The pipeline cannot prove that no further development exists in the supplied records.',
   cost:
