@@ -22,11 +22,13 @@ import { parseArxivEntries } from './providers/arxiv.ts';
 import { canonicalKey, cleanExcerpt, clip, decodeEntities, safeUrl, stripHtml } from './normalize.ts';
 import { CONTENT_STATES } from './devAnalysisConfig.ts';
 import { contentState, hashString } from './devAnalysisGrouping.ts';
+import { sanitizeMessage } from './modelAdapters.ts';
 
 export const ENRICHMENT_CONFIG = {
   // Bounded and manual: at most this many records per request, and only when an administrator
-  // names them explicitly and asks for execution.
-  max_records: 12,
+  // names them explicitly and asks for execution. A request naming more is refused outright,
+  // never silently truncated.
+  max_records: 10,
   fetch_timeout_ms: 15000,
   fetch_concurrency: 4,
   // The floor cleanExcerpt itself applies: shorter source text is reported, not stored.
@@ -34,6 +36,25 @@ export const ENRICHMENT_CONFIG = {
   max_excerpt_chars: 260,
   update_fields: ['excerpt'],
   dry_run_default: true,
+};
+
+// The only hosts this path may contact, and the only identifiers it may put in a request. A
+// stored record's canonical url is never fetched: the record's own source key and host decide
+// which provider is asked, the lookup url is built from validated identifier parts, and anything
+// else is refused as unsupported rather than fetched.
+export const ENRICHMENT_NETWORK_POLICY = {
+  approved_endpoints: [
+    { provider: 'github', endpoint: 'https://api.github.com/repos/{owner}/{repo}', identifiers: 'owner and repository name taken from the path of a github.com canonical url' },
+    { provider: 'arxiv', endpoint: 'https://export.arxiv.org/api/query?id_list={arxiv_id}', identifiers: 'the arXiv identifier from an arxiv.org/abs/ url, validated against a fixed pattern before use' },
+    { provider: 'hacker-news', endpoint: 'https://hacker-news.firebaseio.com/v0/item/{item_id}.json', identifiers: 'the numeric item id from a stored news.ycombinator.com url' },
+    { provider: 'rss', endpoint: 'the feed url already configured in shared/sources.ts', identifiers: 'the canonical key of the stored record, matched against the feed it came from' },
+  ],
+  refusals: {
+    canonical_page: 'a record\'s canonical url is never fetched, so no arbitrary page is ever read',
+    unknown_host: 'a record whose source key is not a configured provider, or whose url carries no trustworthy identifier, is refused and never looked up',
+    caller_supplied_url: 'no part of a request can name a url: identifiers are parsed out of the stored record and validated before use',
+    outbound_hosts: 'every outbound host is one of the four above; nothing else is contacted',
+  },
 };
 
 export const ENRICHMENT_LIMITATIONS = {
@@ -162,6 +183,11 @@ async function lookupArxiv(item, provider) {
     return failed(provider, 'arxiv id', new Error('the canonical url carries no arXiv identifier'), 'no_lookup_key');
   }
   const id = match[1];
+  // The identifier is validated before it is used: an arXiv id is letters, digits, dots, dashes
+  // and at most one category prefix, so no path, query, fragment or host can be smuggled in.
+  if (id.includes('..') || !/^[A-Za-z0-9._-]{2,40}(\/[A-Za-z0-9._-]{2,40})?$/.test(id)) {
+    return failed(provider, 'arxiv id', new Error('the arXiv identifier in the stored url is not a valid identifier'), 'invalid_lookup_key');
+  }
   const api = `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(id)}&max_results=1`;
   try {
     const xml = await fetchText(api, 'application/atom+xml');
@@ -303,4 +329,150 @@ export function summarizeDecisions(decisions) {
     byProvider[row.provider][row.action] += 1;
   }
   return { requested: rows.length, proposed: counts.apply || 0, skipped: counts.skip || 0, by_reason: reasons, by_provider: byProvider };
+}
+
+// --- authorization: the same rule the handler applies, exported so the mocked suite tests the
+// live rule rather than a description of it.
+export function enrichmentAccess(user) {
+  if (!user || !user.id) return { ok: false, status: 401, error: 'Unauthorized', model_calls: 0, provider_calls: 0, writes: 0 };
+  if (user.role !== 'admin') return { ok: false, status: 403, error: 'Forbidden', model_calls: 0, provider_calls: 0, writes: 0 };
+  return { ok: true, status: 200, operator: { operator_id: user.id, operator_role: user.role, manual_only: true } };
+}
+
+// --- the write: a compare-and-set on the exact stored excerpt that was read for this request.
+//
+// The filter is the guard. The update applies only while the record still holds the text this
+// request saw, and only a reported count of exactly one is accepted. A count of zero means
+// another writer populated the excerpt between the read and the write: nothing is overwritten
+// and the newer content is kept. A count the platform does not report, or a refused update,
+// fails closed the same way rather than assuming the write landed.
+export async function guardedExcerptUpdate(db, { itemId, expected, next }) {
+  const before = String(expected || '');
+  try {
+    if (!db || !db.Item || typeof db.Item.updateMany !== 'function') {
+      return { applied: false, updated: null, reason_code: 'concurrent_update_conflict', reason: 'no conditional update is available, so nothing was written and no excerpt was overwritten' };
+    }
+    const result = await db.Item.updateMany({ id: itemId, excerpt: before }, { $set: { excerpt: next } });
+    const updated = result && typeof result.updated === 'number' ? result.updated : null;
+    if (updated === 1) return { applied: true, updated, reason_code: 'applied', reason: 'the record still held the excerpt this request read, so the source text was written' };
+    if (updated === 0) {
+      return {
+        applied: false, updated,
+        reason_code: 'concurrent_update_conflict',
+        reason: 'the stored excerpt changed after it was read for this request, so nothing was written and the newer content is kept',
+      };
+    }
+    return {
+      applied: false, updated: null,
+      reason_code: 'concurrent_update_conflict',
+      reason: 'the platform did not report how many records the guarded update changed, so the write is refused rather than assumed',
+    };
+  } catch (error) {
+    return {
+      applied: false, updated: null,
+      reason_code: 'concurrent_update_conflict',
+      reason: `the guarded update was refused: ${sanitizeMessage(error)}`,
+    };
+  }
+}
+
+async function inBatches(list, size, handler) {
+  const settled = [];
+  for (let index = 0; index < list.length; index += size) {
+    const batch = list.slice(index, index + size);
+    settled.push(...(await Promise.allSettled(batch.map(handler))));
+  }
+  return settled;
+}
+
+// --- the whole operation, with its database and its lookups injected. The live handler passes
+// the real entities and the real provider lookups; the mocked suite passes an in-memory database
+// and scripted answers. One implementation, so a passing case cannot describe different logic.
+export async function runEnrichment({ db, itemIds, execute = false, lookup = lookupNativeText, config = ENRICHMENT_CONFIG }) {
+  const requested = (Array.isArray(itemIds) ? itemIds : []).map((id) => String(id || '').trim()).filter(Boolean);
+  const uniqueIds = Array.from(new Set(requested));
+  const cap = config.max_records;
+
+  const refusal = (error_category, reason, status) => ({ ok: false, status, error_category, reason, cap, model_calls: 0, provider_calls: 0, writes: 0 });
+
+  if (!uniqueIds.length) {
+    return refusal('no_records', 'name the source records to enrich with item_ids; this never walks the catalogue', 400);
+  }
+  if (uniqueIds.length > cap) {
+    return refusal('record_cap', `${uniqueIds.length} records were requested, the cap is ${cap}`, 400);
+  }
+
+  const page = await db.Item.filter({ id: { $in: uniqueIds } }, { limit: cap });
+  const items = (page && page.items) || [];
+  const missingIds = uniqueIds.filter((id) => !items.some((item) => item.id === id));
+  if (!items.length) {
+    return { ...refusal('no_records', 'no stored source record matched the request', 404), missing_ids: missingIds };
+  }
+
+  // A canonical key repeated inside one request is flagged on every record that shares it. The
+  // records are neither merged nor deleted: they are separate stored rows, and duplicates are
+  // reported here exactly as the diagnostics report them.
+  const keyCounts = new Map();
+  for (const item of items) {
+    const key = canonicalKey(item.canonical_url);
+    if (key) keyCounts.set(key, (keyCounts.get(key) || 0) + 1);
+  }
+
+  // Only records that could actually change are looked up: a record that already holds an
+  // excerpt, or holds no text at all, is decided without contacting any provider.
+  const lookupable = items.filter((item) => contentState(item) === CONTENT_STATES.title_only);
+  const settled = await inBatches(lookupable, config.fetch_concurrency, (item) => lookup(item));
+  const answers = new Map();
+  settled.forEach((result, index) => {
+    const item = lookupable[index];
+    if (!item) return;
+    answers.set(item.id, result.status === 'fulfilled' ? result.value : {
+      ok: false, native_text: '', lookup: '', error_category: 'fetch_failed', error: sanitizeMessage(result.reason),
+    });
+  });
+
+  const decisions = items.map((item) => {
+    const key = canonicalKey(item.canonical_url);
+    return {
+      ...decideEnrichment(item, answers.get(item.id), { config }),
+      duplicate_canonical_key: Boolean(key && (keyCounts.get(key) || 0) > 1),
+    };
+  });
+  const proposed = decisions.filter((row) => row.action === 'apply');
+
+  const writeOutcomes = [];
+  if (execute) {
+    for (const row of proposed) {
+      const outcome = await guardedExcerptUpdate(db, { itemId: row.item_id, expected: row.excerpt_before, next: row.excerpt_after });
+      writeOutcomes.push({ item_id: row.item_id, ...outcome });
+    }
+  }
+
+  const appliedIds = writeOutcomes.filter((row) => row.applied).map((row) => row.item_id);
+  const conflicts = writeOutcomes.filter((row) => !row.applied);
+
+  return {
+    ok: true,
+    cap,
+    execute,
+    selection: {
+      requested: uniqueIds.length, resolved_records: items.length, missing_ids: missingIds,
+      lookuped_records: lookupable.length, plan_fingerprint: planFingerprint(items),
+      duplicate_canonical_keys: Array.from(keyCounts.entries()).filter(([, count]) => count > 1).map(([key, count]) => ({ canonical_key: key, records: count })),
+    },
+    summary: summarizeDecisions(decisions),
+    decisions,
+    proposed_excerpts: proposed.map((row) => ({
+      item_id: row.item_id, title: row.title, source: row.source, canonical_url: row.canonical_url,
+      provider: row.provider, lookup: row.lookup, excerpt_after: row.excerpt_after,
+      duplicate_canonical_key: row.duplicate_canonical_key,
+    })),
+    write_outcomes: writeOutcomes,
+    applied_item_ids: appliedIds,
+    concurrent_update_conflicts: conflicts.map((row) => ({ item_id: row.item_id, reason_code: row.reason_code, reason: row.reason })),
+    model_calls: 0,
+    provider_calls: 0,
+    writes: appliedIds.length,
+    dry_run: !execute,
+  };
 }

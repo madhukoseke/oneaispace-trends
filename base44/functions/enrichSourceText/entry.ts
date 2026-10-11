@@ -1,140 +1,135 @@
 // Phase 3A: controlled, administrator-only enrichment of title-only source records.
 //
-// Manual by construction: it runs only when an administrator names the records and asks for
-// execution, it is capped, and it has no schedule behind it. The rules it obeys - provider-native
-// text only, an empty excerpt only, one field written, no model anywhere - are stated in
-// base44/shared/sourceEnrichment.ts, which this handler only wires up.
+// Manual by construction: it runs only when an administrator names the records and asks for it,
+// it is capped at ENRICHMENT_CONFIG.max_records, and it has no schedule behind it. Every rule it
+// obeys - provider-native text only, an empty excerpt only, one field written under a
+// compare-and-set guard, no model anywhere - is stated in base44/shared/sourceEnrichment.ts,
+// which this handler only wires up.
 //
-// Dry run is the default: without an explicit execute request this handler performs no write at
-// all and returns exactly the plan an execute run would carry out.
+// Actions:
+//   dry_run (default) - the plan an execute run would carry out, with zero writes and zero
+//                       provider lookups beyond reading the provider's own published text.
+//   enrich            - the same plan, then the guarded write. Requires execute: true.
+//   suite             - the mocked test suite: scripted lookups and an in-memory database, so no
+//                       provider is contacted, no record is read or written and no model is called.
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.52';
 import {
-  ENRICHMENT_CONFIG, ENRICHMENT_LIMITATIONS, decideEnrichment, lookupNativeText, planFingerprint,
-  summarizeDecisions,
+  ENRICHMENT_CONFIG, ENRICHMENT_LIMITATIONS, ENRICHMENT_NETWORK_POLICY, enrichmentAccess,
+  lookupNativeText, runEnrichment,
 } from '../../shared/sourceEnrichment.ts';
-import { CONTENT_STATES } from '../../shared/devAnalysisConfig.ts';
-import { contentState } from '../../shared/devAnalysisGrouping.ts';
+import { runEnrichmentSuite } from '../../shared/sourceEnrichmentSuite.ts';
 import { sanitizeMessage } from '../../shared/modelAdapters.ts';
-import { clip } from '../../shared/normalize.ts';
-
-async function inBatches(list, size, handler) {
-  const settled = [];
-  for (let index = 0; index < list.length; index += size) {
-    const batch = list.slice(index, index + size);
-    settled.push(...(await Promise.allSettled(batch.map(handler))));
-  }
-  return settled;
-}
 
 export default async function (req) {
   const startedAt = Date.now();
   try {
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
-    if (!user) return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-    if (user.role !== 'admin') return Response.json({ ok: false, error: 'Forbidden' }, { status: 403 });
+    const access = enrichmentAccess(user);
+    if (!access.ok) {
+      return Response.json({ ok: false, error: access.error, model_calls: 0, provider_calls: 0, writes: 0 }, { status: access.status });
+    }
 
     let payload = {};
     try { payload = await req.json(); } catch { payload = {}; }
 
-    const requested = Array.isArray(payload.item_ids) ? payload.item_ids.map((id) => clip(id, 80)).filter(Boolean) : [];
-    const itemIds = Array.from(new Set(requested));
-    const execute = payload.execute === true && payload.dry_run !== true;
-    const cap = ENRICHMENT_CONFIG.max_records;
+    const requestedAction = String(payload.action || '');
+    const wantsExecute = payload.execute === true || requestedAction === 'enrich';
+    const execute = wantsExecute && payload.dry_run !== true;
+    const action = requestedAction || (execute ? 'enrich' : 'dry_run');
 
-    // Every refusal below is answered before a record is read or a provider is contacted.
-    if (!itemIds.length) {
+    // --- mocked suite: no provider call, no network request, no database write.
+    if (action === 'suite') {
+      const suite = await runEnrichmentSuite();
       return Response.json({
-        ok: false, error_category: 'no_records', model_calls: 0, provider_calls: 0, writes: 0,
-        reason: 'name the source records to enrich with item_ids; this handler never walks the catalogue',
-      }, { status: 400 });
-    }
-    if (itemIds.length > cap) {
-      return Response.json({
-        ok: false, error_category: 'record_cap', model_calls: 0, provider_calls: 0, writes: 0,
-        reason: `${itemIds.length} records were requested, the cap is ${cap}`, cap,
-      }, { status: 400 });
-    }
-
-    const page = await base44.entities.Item.filter({ id: { $in: itemIds } }, { limit: cap });
-    const items = (page && page.items) || [];
-    const missingIds = itemIds.filter((id) => !items.some((item) => item.id === id));
-
-    if (!items.length) {
-      return Response.json({
-        ok: false, error_category: 'no_records', model_calls: 0, provider_calls: 0, writes: 0,
-        reason: 'no stored source record matched the request', missing_ids: missingIds,
-      }, { status: 404 });
-    }
-
-    // Only records that could actually change are looked up: a record that already holds an
-    // excerpt, or holds no text at all, is decided without contacting any provider.
-    const lookupable = items.filter((item) => contentState(item) === CONTENT_STATES.title_only);
-    const settled = await inBatches(lookupable, ENRICHMENT_CONFIG.fetch_concurrency, (item) => lookupNativeText(item));
-    const lookups = new Map();
-    settled.forEach((result, index) => {
-      const item = lookupable[index];
-      if (!item) return;
-      lookups.set(item.id, result.status === 'fulfilled' ? result.value : {
-        ok: false, native_text: '', lookup: '', error_category: 'fetch_failed', error: sanitizeMessage(result.reason),
+        ok: suite.failed === 0,
+        action,
+        stage: 'phase3a-source-enrichment',
+        suite: suite.suite,
+        summary: { cases_run: suite.cases_run, passed: suite.passed, failed: suite.failed },
+        failing: suite.cases.filter((entry) => !entry.ok).map((entry) => ({ name: entry.name, detail: entry.detail })),
+        tests: suite,
+        live_path_provider_calls: 0,
+        live_path_database_writes: 0,
+        model_calls: 0,
+        operator: access.operator,
+        note: 'every case runs against scripted lookups and an in-memory database: no provider is contacted, no stored record, analysis row, development, claim, cache entry or ingestion run is read or written, and no model is called',
+        duration_ms: Date.now() - startedAt,
       });
+    }
+
+    if (action !== 'dry_run' && action !== 'enrich') {
+      return Response.json({
+        ok: false, error_category: 'unknown_action', model_calls: 0, provider_calls: 0, writes: 0,
+        error: 'unknown action; expected dry_run, enrich or suite',
+      }, { status: 400 });
+    }
+
+    const result = await runEnrichment({
+      db: base44.entities,
+      itemIds: payload.item_ids,
+      execute,
+      lookup: lookupNativeText,
     });
 
-    const decisions = items.map((item) => decideEnrichment(item, lookups.get(item.id)));
-    const proposed = decisions.filter((row) => row.action === 'apply');
-
-    // The one write in this path, and only when execution was explicitly requested.
-    const appliedRows = [];
-    if (execute) {
-      for (const row of proposed) {
-        await base44.entities.Item.update(row.item_id, { excerpt: row.excerpt_after });
-        appliedRows.push({
-          item_id: row.item_id, field: 'excerpt',
-          excerpt_chars_before: row.excerpt_before.length,
-          excerpt_chars_after: row.excerpt_after_chars,
-          excerpt_after: row.excerpt_after,
-        });
-      }
+    if (!result.ok) {
+      return Response.json({ ...result, operator: access.operator, selection_requested: Array.isArray(payload.item_ids) ? payload.item_ids.length : 0 }, { status: result.status || 400 });
     }
 
     return Response.json({
       ok: true,
-      action: execute ? 'enrich' : 'dry_run',
+      action,
       stage: 'phase3a-source-enrichment',
       dry_run: !execute,
       read_only: !execute,
-      operator: { operator_id: user.id, operator_role: user.role, manual_only: true },
-      selection: {
-        requested: itemIds.length, resolved_records: items.length, missing_ids: missingIds, cap,
-        lookuped_records: lookupable.length,
-        plan_fingerprint: planFingerprint(items),
-      },
-      summary: summarizeDecisions(decisions),
+      operator: access.operator,
+      selection: result.selection,
+      summary: result.summary,
       // Proposed and applied are kept apart: a dry run lists what would be written and writes nothing.
-      proposed_excerpts: proposed.map((row) => ({
-        item_id: row.item_id, title: row.title, source: row.source, canonical_url: row.canonical_url,
-        provider: row.provider, lookup: row.lookup, excerpt_after: row.excerpt_after,
-      })),
-      applied_excerpts: appliedRows,
+      proposed_excerpts: result.proposed_excerpts,
+      applied_excerpts: result.write_outcomes
+        .filter((row) => row.applied)
+        .map((row) => {
+          const proposal = result.proposed_excerpts.find((entry) => entry.item_id === row.item_id) || {};
+          return {
+            item_id: row.item_id, field: 'excerpt',
+            excerpt_after: proposal.excerpt_after || null,
+            excerpt_chars_after: proposal.excerpt_after ? proposal.excerpt_after.length : null,
+          };
+        }),
+      concurrent_update_conflicts: result.concurrent_update_conflicts,
       writes: {
-        applied: appliedRows.length, field: 'excerpt', dry_run: !execute,
-        records_touched: appliedRows.map((row) => row.item_id),
+        applied: result.writes,
+        attempted: result.write_outcomes.length,
+        field: 'excerpt',
+        guard: 'a conditional update whose filter carries the exact excerpt this request read; only a reported changed count of exactly one is accepted, and anything else fails closed',
+        dry_run: !execute,
+        records_touched: result.applied_item_ids,
         note: execute
-          ? 'only the excerpt field was written, and only on records that were title-only when they were read for this request'
+          ? 'only the excerpt field was written, and only on records that were still title-only when this request read them'
           : 'dry run: no record was written',
       },
-      records: decisions,
+      records: result.decisions,
       limits: {
-        max_records: cap, update_fields: ENRICHMENT_CONFIG.update_fields, dry_run_default: ENRICHMENT_CONFIG.dry_run_default,
-        model_calls: 0, schedules: 0, new_integrations: 0,
+        max_records: result.cap,
+        update_fields: ENRICHMENT_CONFIG.update_fields,
+        dry_run_default: ENRICHMENT_CONFIG.dry_run_default,
+        fetch_timeout_ms: ENRICHMENT_CONFIG.fetch_timeout_ms,
+        model_calls: 0,
+        schedules: 0,
+        new_integrations: 0,
         model_execution: 'not involved: this path makes no model call and does not read or change the analysis kill switch',
-        untouched: ['Item.title', 'Item.canonical_url', 'Item.published_at', 'Item.source', 'DevAnalysisRun', 'DevDevelopment', 'DevClaim', 'DevAnalysisCache', 'IngestionRun', 'Trend', 'Topic'],
+        untouched: ['Item.title', 'Item.canonical_url', 'Item.published_at', 'Item.source', 'Item.metrics', 'Trend', 'Topic', 'IngestionRun', 'DevAnalysisRun', 'DevDevelopment', 'DevClaim', 'DevAnalysisCache'],
       },
+      network_policy: ENRICHMENT_NETWORK_POLICY,
       limitations: ENRICHMENT_LIMITATIONS,
       duration_ms: Date.now() - startedAt,
     });
   } catch (error) {
-    return Response.json({ ok: false, error_category: 'enrichment_error', error: sanitizeMessage(error) }, { status: 500 });
+    return Response.json({
+      ok: false, error_category: 'enrichment_error', error: sanitizeMessage(error),
+      model_calls: 0, provider_calls: 0, writes: 0,
+    }, { status: 500 });
   }
 }

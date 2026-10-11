@@ -11,10 +11,14 @@
 import { CONTENT_STATES } from './devAnalysisConfig.ts';
 import { contentState, identifiableEvent } from './devAnalysisGrouping.ts';
 import { canonicalKey } from './normalize.ts';
+import { providerForItem } from './sourceEnrichment.ts';
 
 export const QUALITY_MAX_RECORDS = 5000;
 export const QUALITY_PAGE_SIZE = 200;
 export const DUPLICATE_SAMPLE_LIMIT = 20;
+// How many enrichment candidates the report lists: enough to pick a batch from, never the whole
+// title-only population.
+export const ENRICHMENT_CANDIDATE_LIMIT = 10;
 export const QUALITY_ITEM_FIELDS = [
   'title', 'excerpt', 'source', 'source_key', 'canonical_url', 'canonical_key', 'format', 'published_at',
 ];
@@ -77,6 +81,8 @@ export function summarizeSourceQuality({ records, truncated = false, scan_cap = 
   let analysisEligible = 0;
   let eligibleTitleOnly = 0;
   let identifyableWithoutExcerpt = 0;
+  let candidateCount = 0;
+  const enrichmentCandidates = [];
   let excerptChars = 0;
   let excerptCharsMin = null;
   let excerptCharsMax = null;
@@ -126,6 +132,26 @@ export function summarizeSourceQuality({ records, truncated = false, scan_cap = 
     if (state === CONTENT_STATES.title_only && event.identifiable) {
       eligibleTitleOnly += 1;
       identifyableWithoutExcerpt += 1;
+      // A title-only record whose provider publishes its own text for it: the population Phase 3A
+      // enrichment is aimed at. Listed for selection here, never acted on by this report.
+      const provider = providerForItem(item);
+      if (provider.key !== 'unsupported') {
+        candidateCount += 1;
+        if (enrichmentCandidates.length < ENRICHMENT_CANDIDATE_LIMIT) {
+          enrichmentCandidates.push({
+            item_id: item.id,
+            title: String(item.title || ''),
+            source: String(item.source || ''),
+            source_key: row.source_key,
+            canonical_url: String(item.canonical_url || ''),
+            provider: provider.key,
+            provider_label: provider.label,
+            event_basis: event.basis,
+            event_tokens: event.tokens || [],
+            reason: 'title-only record that names an identifiable event, with a provider endpoint that publishes its own text for it',
+          });
+        }
+      }
     }
 
     const key = String(item.canonical_key || '') || canonicalKey(item.canonical_url);
@@ -192,6 +218,13 @@ export function summarizeSourceQuality({ records, truncated = false, scan_cap = 
       eligible_but_title_only: eligibleTitleOnly,
       title_only_with_named_event: identifyableWithoutExcerpt,
       note: 'a title-only record with a named event is exactly the population Phase 3A enrichment is aimed at: it already describes something identifiable, and only its source text is missing',
+    },
+    enrichment_candidates: {
+      count: candidateCount,
+      listed: enrichmentCandidates,
+      limit: ENRICHMENT_CANDIDATE_LIMIT,
+      truncated: candidateCount > enrichmentCandidates.length,
+      note: 'title-only records that name an identifiable event and whose provider publishes its own text for them. Listed for selection only: nothing here is fetched, written or enriched, and enrichment stays a separate, explicit, capped request',
     },
     limitations: SOURCE_QUALITY_LIMITATIONS,
   };
