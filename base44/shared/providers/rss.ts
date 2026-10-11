@@ -20,7 +20,18 @@ function pickImage(block) {
   return inline ? inline[1] : "";
 }
 
-function parseFeed(xml, feed) {
+// The feed's own descriptive fields, with no order assumed: where a feed publishes more than
+// one, the longest is the richest description it actually published. Nothing is composed here -
+// an empty description stays empty.
+function pickRichestBody(block) {
+  const candidates = ["content:encoded", "description", "summary", "content"]
+    .map((tag) => stripHtml(pickTag(block, tag)))
+    .filter((text) => text);
+  if (!candidates.length) return "";
+  return candidates.reduce((best, text) => (text.length > best.length ? text : best));
+}
+
+export function parseFeed(xml, feed) {
   const blocks = /<item[\s>]/i.test(xml)
     ? xml.split(/<item[\s>]/i).slice(1)
     : xml.split(/<entry[\s>]/i).slice(1);
@@ -45,16 +56,14 @@ function parseFeed(xml, feed) {
     const timestamp = Date.parse(decodeEntities(published).trim());
     if (Number.isFinite(timestamp) && timestamp < cutoff) continue;
 
-    const body =
-      pickTag(block, "content:encoded") || pickTag(block, "description") ||
-      pickTag(block, "summary") || pickTag(block, "content");
+    const body = pickRichestBody(block);
     const author = decodeEntities(
       pickTag(block, "dc:creator") || pickTag(block, "author") || pickTag(block, "name")
     ).replace(/\s+/g, " ").trim();
 
     items.push({
       title,
-      excerpt: clip(stripHtml(body), 260),
+      excerpt: clip(body, 260),
       canonical_url: link,
       source: feed.label,
       source_key: feed.key,

@@ -33,7 +33,10 @@
 //
 // Actions: dry_run (the batch plan, grouping, cache coverage and worst-case estimate,
 // with zero provider calls), analyze (one authorized batch), suite (the mocked-provider
-// test suite, zero provider calls), review (read stored runs, developments and claims).
+// test suite, zero provider calls), review (read stored runs, developments and claims),
+// source_quality (Phase 3A: read-only diagnostics over the stored catalogue - content
+// states, excerpt coverage, canonical duplicates and analysis eligibility. It takes no
+// authorization, consumes no call slot and writes nothing.)
 //
 // No action deletes anything: there is no delete, deleteMany or purge operation anywhere
 // in this function or in the modules it imports. Nothing here writes to Item, Trend,
@@ -49,6 +52,7 @@ import {
   buildDryRunReport, buildSourceView, estimateBatchWorstCase, selectAnalysable,
 } from '../../shared/devAnalysisCriteria.ts';
 import { clip, makeReserve, refusalBody } from '../../shared/pipelineSupport.ts';
+import { loadItemsForQuality, summarizeSourceQuality } from '../../shared/sourceQuality.ts';
 import { runPipeline } from '../../shared/devAnalysisPipeline.ts';
 import { runSuite } from '../../shared/devAnalysisSuite.ts';
 import {
@@ -154,8 +158,29 @@ export default async function (req) {
       });
     }
 
+    // --- Phase 3A: read-only source-quality diagnostics.
+    // No authorization, no call slot and no write: it summarizes what is already stored, so an
+    // administrator can see where source text is missing before asking for any analysis.
+    if (action === 'source_quality') {
+      const scan = await loadItemsForQuality(db);
+      return Response.json({
+        ok: true,
+        action,
+        stage: config.stage,
+        read_only: true,
+        kill_switch: killSwitch,
+        execution_enabled: config.execution_enabled,
+        model_calls: 0,
+        provider_calls: 0,
+        writes: 0,
+        scan: { records_read: scan.records_read, truncated: scan.truncated, scan_cap: scan.scan_cap },
+        report: summarizeSourceQuality(scan),
+        note: 'diagnostics only: this action reads stored records, contacts no provider and writes nothing',
+      });
+    }
+
     if (action !== 'dry_run' && action !== 'analyze' && action !== 'suite') {
-      return Response.json({ ok: false, error: 'unknown action; expected dry_run, analyze, suite or review' }, { status: 400 });
+      return Response.json({ ok: false, error: 'unknown action; expected source_quality, review, dry_run, analyze or suite' }, { status: 400 });
     }
 
     const runId = clip(payload.run_id, 80);

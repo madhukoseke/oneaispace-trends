@@ -7,20 +7,12 @@ function pickTag(block, tag) {
   return match ? decodeEntities(match[1]).replace(/\s+/g, " ").trim() : "";
 }
 
-export const arxivProvider = {
-  key: "arxiv",
-  label: "arXiv",
-  defaultTrend: "research",
-  async fetchItems() {
-    const response = await fetch(ARXIV.query, {
-      headers: { "User-Agent": USER_AGENT, Accept: "application/atom+xml" },
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!response.ok) throw new Error(`arXiv responded ${response.status}`);
-    const xml = await response.text();
-    const blocks = xml.split(/<entry[\s>]/i).slice(1);
+// Entry parsing is shared: the ingestion provider uses it on the newest submissions, and the
+// Phase 3A enrichment path uses it to read back one abstract it already holds the identifier for.
+export function parseArxivEntries(xml) {
+  const blocks = String(xml || "").split(/<entry[\s>]/i).slice(1);
 
-    const items = [];
+  const items = [];
     for (const block of blocks) {
       const title = pickTag(block, "title");
       const id = pickTag(block, "id");
@@ -52,5 +44,18 @@ export const arxivProvider = {
       });
     }
     return items;
+}
+
+export const arxivProvider = {
+  key: "arxiv",
+  label: "arXiv",
+  defaultTrend: "research",
+  async fetchItems() {
+    const response = await fetch(ARXIV.query, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/atom+xml" },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!response.ok) throw new Error(`arXiv responded ${response.status}`);
+    return parseArxivEntries(await response.text());
   },
 };

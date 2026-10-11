@@ -121,7 +121,7 @@ export default async function (req) {
     await chunked(candidates.map((item) => item.canonical_key), KEY_CHUNK, async (keys) => {
       const page = await db.Item.filter({ canonical_key: { $in: keys } }, {
         limit: 200,
-        fields: ['id', 'canonical_key', 'metric_value', 'score'],
+        fields: ['id', 'canonical_key', 'metric_value', 'score', 'excerpt'],
       });
       for (const row of page.items || []) existingByKey.set(row.canonical_key, row);
     });
@@ -149,18 +149,23 @@ export default async function (req) {
       const row = existingByKey.get(item.canonical_key);
       if (!row) continue;
       if (Number(row.metric_value) !== item.metric_value || row.score !== item.score) {
-        updates.push({
+        const update = {
           id: row.id,
           metric_value: item.metric_value,
           metrics: item.metrics,
           score: item.score,
           title: item.title,
-          excerpt: item.excerpt,
           tags: item.tags,
           trend_slug: item.trend_slug,
           topic_slug: item.topic_slug,
           claim_uncertain: item.claim_uncertain,
-        });
+        };
+        // A stored excerpt is only ever replaced by a longer source-native one: a feed that has
+        // dropped its description must not erase text this catalogue already holds.
+        if (item.excerpt && item.excerpt.length >= String(row.excerpt || '').length) {
+          update.excerpt = item.excerpt;
+        }
+        updates.push(update);
       }
     }
     let updated = 0;
