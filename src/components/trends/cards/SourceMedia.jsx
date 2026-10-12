@@ -15,7 +15,7 @@ export default function SourceMedia({ item, className, children }) {
   return (
     <div
       className={cn(
-        "relative w-full overflow-hidden border-b border-border/60 bg-muted",
+        "relative w-full overflow-hidden bg-ed-surface",
         "aspect-video",
         className
       )}

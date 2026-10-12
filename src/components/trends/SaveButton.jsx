@@ -36,10 +36,13 @@ export default function SaveButton({ item, className }) {
           aria-pressed={saved}
           aria-label={saved ? `Remove "${item.title}" from saved items` : `Save "${item.title}"`}
           className={cn(
-            "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] border border-border/60 px-2 text-[12.5px] outline-none transition-colors duration-150",
-            "hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+            "inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-[7px] border px-3.5 text-[13px] outline-none",
+            "transition-[background-color,border-color,color] duration-200",
+            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ed-text",
             "disabled:opacity-60",
-            saved ? "border-brand/40 bg-brand/10 text-brand" : "text-muted-foreground hover:text-foreground",
+            saved
+              ? "border-ed-text bg-ed-text text-ed-bg"
+              : "border-ed-line bg-transparent text-ed-text hover:border-ed-line-strong hover:bg-ed-line",
             className
           )}
         >

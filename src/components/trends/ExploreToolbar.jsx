@@ -4,7 +4,10 @@ import TagFilterPopover from "./TagFilterPopover";
 import ActiveFilters from "./ActiveFilters";
 import { SORT_OPTIONS } from "@/lib/trends";
 
-const TRIGGER = "h-8 w-auto gap-1 rounded-[7px] border-border/60 bg-card px-2.5 text-[13px] shadow-none";
+const TRIGGER =
+  "h-[34px] w-auto gap-1.5 rounded-[7px] border border-ed-line bg-ed-surface px-3 text-[13px] text-ed-text shadow-none transition-[border-color,background-color] duration-200 hover:border-ed-line-soft hover:bg-ed-surface-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ed-text";
+
+const CONTENT = "max-h-[320px] rounded-[10px] border-ed-line bg-ed-surface text-ed-text";
 
 // The catalogue's control row: source, topic and sort are visible controls rather than a
 // hidden panel, because on a working surface the filters are the point. Tags keep their own
@@ -16,13 +19,13 @@ export default function ExploreToolbar({ state, facets, total, topics = [], onPa
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2.5">
         {topicOptions.length > 1 ? (
           <Select value={state.topic || "all"} onValueChange={(value) => onParam({ topic: value })}>
             <SelectTrigger className={TRIGGER} aria-label="Filter by topic">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="max-h-[320px] rounded-[10px]">
+            <SelectContent className={CONTENT}>
               <SelectItem value="all">Topic: All</SelectItem>
               {topicOptions.map((topic) => (
                 <SelectItem key={topic.value} value={topic.value}>
@@ -37,7 +40,7 @@ export default function ExploreToolbar({ state, facets, total, topics = [], onPa
           <SelectTrigger className={TRIGGER} aria-label="Filter by source">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent className="max-h-[320px] rounded-[10px]">
+          <SelectContent className={CONTENT}>
             <SelectItem value="all">Source: All</SelectItem>
             {sources.map((source) => (
               <SelectItem key={source} value={source}>
@@ -51,7 +54,7 @@ export default function ExploreToolbar({ state, facets, total, topics = [], onPa
           <SelectTrigger className={TRIGGER} aria-label="Sort results">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent className="rounded-[10px]">
+          <SelectContent className="rounded-[10px] border-ed-line bg-ed-surface text-ed-text">
             {SORT_OPTIONS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 <span className="inline-flex items-center gap-1.5">
@@ -72,7 +75,7 @@ export default function ExploreToolbar({ state, facets, total, topics = [], onPa
           onChange={(tags) => onParam({ tags })}
         />
 
-        <p className="ml-auto text-[12.5px] tabular-nums text-muted-foreground">
+        <p className="ml-auto text-[12.5px] tabular-nums text-ed-label">
           {total} {total === 1 ? "item" : "items"}
         </p>
       </div>

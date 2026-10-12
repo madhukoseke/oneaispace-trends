@@ -1,17 +1,21 @@
 import { Skeleton } from "@/components/ui/skeleton";
-import SectionHeading from "./SectionHeading";
+import { cn } from "@/lib/utils";
+import EditorialHeading from "./EditorialHeading";
 import DevelopmentCard from "./DevelopmentCard";
 import HowItWorksDialog from "./HowItWorksDialog";
 
+const FOCUS =
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ed-text";
+
 function CardsSkeleton() {
   return (
-    <div className="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-2" aria-hidden="true">
+    <div className="mt-7 grid grid-cols-1 gap-5 md:grid-cols-2" aria-hidden="true">
       {[0, 1].map((key) => (
-        <div key={key} className="space-y-2 rounded-[10px] border border-border/60 bg-card p-3.5">
-          <Skeleton className="h-3 w-28" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-3 w-4/5" />
-          <Skeleton className="h-3 w-1/3" />
+        <div key={key} className="space-y-2.5 rounded-[12px] border border-ed-line bg-ed-surface p-4">
+          <Skeleton className="h-3 w-28 bg-ed-line" />
+          <Skeleton className="h-5 w-full bg-ed-line" />
+          <Skeleton className="h-3.5 w-4/5 bg-ed-line" />
+          <Skeleton className="h-3 w-1/3 bg-ed-line" />
         </div>
       ))}
     </div>
@@ -32,8 +36,11 @@ export default function LatestDevelopments({ items, loading, error, onRetry, hid
   if (!loading && !error && !items.length) return null;
 
   return (
-    <section className="mt-7 border-t border-border/60 pt-5" aria-labelledby="latest-developments">
-      <SectionHeading
+    <section
+      className="mt-2 animate-fade-in opacity-0 [animation-delay:0.7s]"
+      aria-labelledby="latest-developments"
+    >
+      <EditorialHeading
         id="latest-developments"
         title="Latest Developments"
         note="Source-supported updates from across AI."
@@ -43,18 +50,24 @@ export default function LatestDevelopments({ items, loading, error, onRetry, hid
       {loading ? (
         <CardsSkeleton />
       ) : error ? (
-        <div role="status" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <p className="text-[13px] text-muted-foreground">Developments temporarily unavailable.</p>
+        <div
+          role="status"
+          className="mt-4 flex flex-wrap items-center gap-x-3.5 gap-y-1 rounded-[8px] border border-dashed border-ed-line bg-ed-surface px-3.5 py-3"
+        >
+          <span className="text-[13px] text-ed-muted">Developments temporarily unavailable.</span>
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-[4px] text-[12px] font-medium text-muted-foreground underline decoration-border underline-offset-2 outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              "rounded-[4px] text-[12px] font-medium text-ed-text underline decoration-ed-line-strong underline-offset-[3px] transition-[text-decoration-color] duration-200 hover:decoration-ed-text",
+              FOCUS
+            )}
           >
             Try again
           </button>
         </div>
       ) : (
-        <ul className="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-2">
+        <ul className="mt-7 grid grid-cols-1 gap-5 md:grid-cols-2">
           {items.map((item) => (
             <li key={item.development_id} className="h-full">
               <DevelopmentCard item={item} />
@@ -65,7 +78,7 @@ export default function LatestDevelopments({ items, loading, error, onRetry, hid
 
       {/* The note about what these cards are sits with them, below them, rather than above. */}
       {!loading && !error && items.length ? (
-        <p className="mt-3 text-[12px] text-muted-foreground">
+        <p className="mt-[18px] text-[12px] text-ed-label">
           Accepted developments from sources already stored here, newest first.
         </p>
       ) : null}

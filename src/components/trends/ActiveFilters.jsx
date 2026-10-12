@@ -17,17 +17,17 @@ export default function ActiveFilters({ state, onParam, onReset }) {
               ? onParam({ q: "" })
               : onParam({ tags: state.tags.filter((tag) => tag !== chip.value) })
           }
-          className="inline-flex items-center gap-1.5 rounded-[6px] border border-border/70 px-2 py-1 text-[12.5px] text-foreground/85 outline-none transition-colors duration-150 hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex items-center gap-1.5 rounded-[6px] border border-ed-line px-2 py-1 text-[12.5px] text-ed-text/85 outline-none transition-[background-color] duration-200 hover:bg-ed-line focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ed-text"
         >
           {chip.label}
-          <X className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+          <X className="h-3 w-3 text-ed-label" aria-hidden="true" />
           <span className="sr-only">Remove this filter</span>
         </button>
       ))}
       <button
         type="button"
         onClick={onReset}
-        className="rounded-[6px] px-1.5 py-1 text-[12.5px] text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        className="rounded-[6px] px-1.5 py-1 text-[12.5px] text-ed-label outline-none transition-[color] duration-200 hover:text-ed-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ed-text"
       >
         Clear all
       </button>

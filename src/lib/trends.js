@@ -28,6 +28,13 @@ export const SORT_OPTIONS = [
 
 export const PAGE_SIZE = 24;
 
+// Catalogue density, written out as whole classes so the build keeps them.
+export const GRID_COLUMNS = {
+  1: "grid-cols-1",
+  2: "grid-cols-1 md:grid-cols-2",
+  3: "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3",
+};
+
 export function relativeTime(value) {
   const timestamp = Date.parse(value || "");
   if (!Number.isFinite(timestamp)) return "";

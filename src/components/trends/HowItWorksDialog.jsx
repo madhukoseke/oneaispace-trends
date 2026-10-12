@@ -1,4 +1,5 @@
 import { Info } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -61,17 +62,22 @@ export default function HowItWorksDialog() {
       <DialogTrigger asChild>
         <button
           type="button"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-[4px] text-[12.5px] text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[7px] border border-ed-line bg-ed-surface px-4 text-[13.5px] text-ed-text outline-none",
+            "transition-[background-color,border-color] duration-200",
+            "hover:border-ed-line-strong hover:bg-ed-line active:bg-ed-press",
+            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ed-text"
+          )}
         >
           <Info className="h-3.5 w-3.5" aria-hidden="true" />
           How it works
         </button>
       </DialogTrigger>
 
-      <DialogContent className="max-h-[85vh] w-[calc(100%-2rem)] max-w-[540px] overflow-y-auto rounded-[12px] border-border/70 bg-card p-5">
+      <DialogContent className="max-h-[85vh] w-[calc(100%-2rem)] max-w-[540px] overflow-y-auto rounded-[12px] border-ed-line bg-ed-surface p-5 text-ed-text">
         <DialogHeader>
-          <DialogTitle className="text-[16px] font-medium tracking-[-0.01em]">How this works</DialogTitle>
-          <DialogDescription className="text-[13px] leading-relaxed">
+          <DialogTitle className="text-[16px] font-semibold tracking-[-0.015em]">How this works</DialogTitle>
+          <DialogDescription className="text-[13px] leading-relaxed text-ed-muted">
             Every development in this feed is produced by the same two-role pipeline, then checked before it can be
             shown.
           </DialogDescription>
@@ -81,20 +87,20 @@ export default function HowItWorksDialog() {
           {ROLES.map((role) => (
             <div key={role.label}>
               <dt className="text-[12.5px] font-medium">{role.label}</dt>
-              <dd className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">{role.body}</dd>
+              <dd className="mt-0.5 text-[13px] leading-relaxed text-ed-muted">{role.body}</dd>
             </div>
           ))}
         </dl>
 
-        <p className="border-t border-border/60 pt-3 text-[12.5px] leading-relaxed text-muted-foreground">
-          <span className="font-medium text-foreground">Source-excerpt support is not independent verification. </span>
+        <p className="border-t border-ed-line pt-3 text-[12.5px] leading-relaxed text-ed-muted">
+          <span className="font-medium text-ed-text">Source-excerpt support is not independent verification. </span>
           It is a model's judgement about a quote taken from the stored record. Nothing here has been checked against
           the world.
         </p>
 
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Flow</p>
-          <pre className="mt-2 overflow-x-auto font-mono text-[11px] leading-[1.6] text-muted-foreground">{FLOW}</pre>
+          <p className="text-[11px] uppercase tracking-[0.09em] text-ed-label">Flow</p>
+          <pre className="mt-2 overflow-x-auto font-mono text-[11px] leading-[1.6] text-ed-muted">{FLOW}</pre>
         </div>
       </DialogContent>
     </Dialog>

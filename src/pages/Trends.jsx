@@ -4,7 +4,7 @@ import CategoryNav from "@/components/trends/CategoryNav";
 import FormatTabs from "@/components/trends/FormatTabs";
 import ExploreToolbar from "@/components/trends/ExploreToolbar";
 import DiscoveryGrid from "@/components/trends/DiscoveryGrid";
-import SectionHeading from "@/components/trends/SectionHeading";
+import EditorialHeading from "@/components/trends/EditorialHeading";
 import LatestDevelopments from "@/components/trends/LatestDevelopments";
 import useDiscovery from "@/hooks/useDiscovery";
 import useTrends from "@/hooks/useTrends";
@@ -14,10 +14,10 @@ import { categorySlugs, moreTrends } from "@/lib/categories";
 
 const SUBTITLE = "Discover what's happening in AI.";
 
-// The discovery surface, one 1160px column: the page identity and its one search field, the
-// compact category row, the developments the public feed has proven, then the whole catalogue
-// as a single scannable list under Explore AI. The category row narrows the catalogue to
-// existing trend identifiers and is the only navigation this page needs.
+// The editorial discovery surface: the masthead and its one search field, then the developments
+// the public feed has proven, then the categories and the whole catalogue as one two-column
+// feed. The category row narrows the catalogue to existing trend identifiers and is the only
+// navigation this page needs.
 export default function Trends() {
   const { state, update, loadMore, reload, facets, items, total, loading, error, hasMore, tagQuery } =
     useDiscovery({});
@@ -64,58 +64,66 @@ export default function Trends() {
     Boolean(state.topic);
 
   return (
-    <div className="mx-auto max-w-[1160px] px-4 pb-14 pt-7 sm:px-6 lg:px-8">
+    <div className="bg-ed-bg pb-[72px] text-ed-text">
       <TrendsHeader title="Trends" subtitle={SUBTITLE} query={state.q} onQueryChange={handleQuery} />
 
-      <div className="mt-5 border-b border-border/60">
-        <CategoryNav value={state.category} onChange={handleCategory} more={more} />
-      </div>
-
-      <LatestDevelopments
-        hidden={narrowed}
-        items={developments.items}
-        loading={developments.loading}
-        error={developments.error}
-        onRetry={developments.reload}
-      />
-
-      <section className="mt-7 border-t border-border/60 pt-5" aria-labelledby="explore-ai">
-        <SectionHeading
-          id="explore-ai"
-          title="Explore AI"
-          note="Browse original sources, research, releases, and tools."
+      <div className="mx-auto max-w-[1160px] px-4 sm:px-6 lg:px-8">
+        <LatestDevelopments
+          hidden={narrowed}
+          items={developments.items}
+          loading={developments.loading}
+          error={developments.error}
+          onRetry={developments.reload}
         />
 
-        <div className="mt-3 space-y-2.5">
-          <FormatTabs
-            rows={facets.formats}
-            value={state.format}
-            onChange={(value) => update({ format: value })}
-          />
-          <ExploreToolbar
-            state={state}
-            facets={facets}
-            total={total}
-            topics={topicOptions}
-            onParam={update}
-            onReset={clearFilters}
-            tagQuery={tagQuery}
-          />
-        </div>
+        <section
+          className="mt-14 animate-fade-in opacity-0 [animation-delay:0.9s]"
+          aria-labelledby="explore-ai"
+        >
+          <CategoryNav value={state.category} onChange={handleCategory} more={more} />
 
-        <div className="mt-4">
-          <DiscoveryGrid
-            items={items}
-            loading={loading}
-            error={error}
-            hasMore={hasMore}
-            onLoadMore={loadMore}
-            onReset={clearFilters}
-            onRetry={reload}
-            emptyHint="Nothing in the catalogue matches these filters yet. Try another category, format, source or search term."
+          <EditorialHeading
+            id="explore-ai"
+            title="Explore AI"
+            note="Browse original sources, research, releases, and tools."
+            bordered={false}
           />
-        </div>
-      </section>
+
+          <div className="mt-6">
+            <FormatTabs
+              rows={facets.formats}
+              value={state.format}
+              onChange={(value) => update({ format: value })}
+            />
+          </div>
+
+          <div className="mt-4">
+            <ExploreToolbar
+              state={state}
+              facets={facets}
+              total={total}
+              topics={topicOptions}
+              onParam={update}
+              onReset={clearFilters}
+              tagQuery={tagQuery}
+            />
+          </div>
+
+          <div className="mt-7">
+            <DiscoveryGrid
+              columns={2}
+              items={items}
+              loading={loading}
+              error={error}
+              hasMore={hasMore}
+              onLoadMore={loadMore}
+              onReset={clearFilters}
+              onRetry={reload}
+              emptyHint="Nothing in the catalogue matches these filters yet. Try another category, format, source or search term."
+            />
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

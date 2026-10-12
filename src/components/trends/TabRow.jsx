@@ -1,33 +1,47 @@
 import { cn } from "@/lib/utils";
 
-// Shared compact tab strip behind the format navigation and the topic navigation.
+// Shared tab strip behind the format navigation: labelled pills, the chosen one carrying the
+// inverted surface so the selection is legible at a glance.
 export default function TabRow({ label, tabs, value, onChange, className }) {
   return (
-    <div role="tablist" aria-label={label} className={cn("flex items-center gap-1 overflow-x-auto", className)}>
-      {tabs.map((tab) => {
-        const active = value === tab.value;
-        return (
-          <button
-            key={tab.value || "all"}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(tab.value)}
-            className={cn(
-              "shrink-0 rounded-[7px] px-2.5 py-1 text-[13.5px] outline-none transition-colors duration-150",
-              "focus-visible:ring-2 focus-visible:ring-ring",
-              active
-                ? cn("bg-secondary font-medium", tab.tone || "text-foreground")
-                : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-            )}
-          >
-            {tab.label}
-            {typeof tab.count === "number" ? (
-              <span className="ml-1.5 text-[11.5px] tabular-nums text-muted-foreground/80">{tab.count}</span>
-            ) : null}
-          </button>
-        );
-      })}
+    <div className={cn("flex flex-wrap items-center gap-2.5", className)}>
+      {label ? (
+        <span className="mr-1.5 text-[11px] uppercase tracking-[0.09em] text-ed-label">{label}</span>
+      ) : null}
+
+      <div
+        role="tablist"
+        aria-label={label}
+        className="flex items-center gap-2.5 overflow-x-auto"
+      >
+        {tabs.map((tab) => {
+          const active = value === tab.value;
+          return (
+            <button
+              key={tab.value || "all"}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onChange(tab.value)}
+              className={cn(
+                "inline-flex h-8 shrink-0 items-center gap-2 rounded-full border px-3.5 text-[13px] outline-none",
+                "transition-[background-color,color,border-color] duration-200",
+                "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ed-text",
+                active
+                  ? "border-ed-text bg-ed-text text-ed-bg"
+                  : "border-ed-line text-ed-muted hover:border-ed-line-soft hover:text-ed-text"
+              )}
+            >
+              {tab.label}
+              {typeof tab.count === "number" ? (
+                <span className={cn("text-[12px]", active ? "text-ed-count" : "text-ed-label")}>
+                  {tab.count}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -52,6 +52,20 @@ module.exports = {
   				DEFAULT: 'hsl(var(--surface))',
   				elevated: 'hsl(var(--surface-elevated))'
   			},
+  			ed: {
+  				bg: 'hsl(var(--ed-bg))',
+  				surface: 'hsl(var(--ed-surface))',
+  				'surface-hover': 'hsl(var(--ed-surface-hover))',
+  				line: 'hsl(var(--ed-line))',
+  				'line-strong': 'hsl(var(--ed-line-strong))',
+  				'line-soft': 'hsl(var(--ed-line-soft))',
+  				'line-card': 'hsl(var(--ed-line-card))',
+  				press: 'hsl(var(--ed-press))',
+  				text: 'hsl(var(--ed-text))',
+  				muted: 'hsl(var(--ed-muted))',
+  				label: 'hsl(var(--ed-label))',
+  				count: 'hsl(var(--ed-count))'
+  			},
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
   			ring: 'hsl(var(--ring))',
@@ -95,11 +109,16 @@ module.exports = {
   				to: {
   					height: '0'
   				}
+  			},
+  			fadeIn: {
+  				from: { opacity: '0', transform: 'translateY(8px)' },
+  				to: { opacity: '1', transform: 'none' }
   			}
   		},
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
-  			'accordion-up': 'accordion-up 0.2s ease-out'
+  			'accordion-up': 'accordion-up 0.2s ease-out',
+  			'fade-in': 'fadeIn 0.9s ease-out forwards'
   		}
   	}
   },
