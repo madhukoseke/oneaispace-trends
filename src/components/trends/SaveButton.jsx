@@ -39,7 +39,7 @@ export default function SaveButton({ item, className }) {
             "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] border border-border/60 px-2 text-[12.5px] outline-none transition-colors duration-150",
             "hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             "disabled:opacity-60",
-            saved ? "text-brand" : "text-muted-foreground hover:text-foreground",
+            saved ? "border-brand/40 bg-brand/10 text-brand" : "text-muted-foreground hover:text-foreground",
             className
           )}
         >

@@ -18,6 +18,24 @@ export const FORMAT_NOUN = {
   research: "Paper",
 };
 
+// One restrained hue per format, used only on a dot and on the format micro-label, so a
+// reader can tell the kinds apart at a glance without the list turning into decoration.
+export const FORMAT_TONE = {
+  video: "text-format-video",
+  project: "text-format-project",
+  post: "text-format-post",
+  article: "text-format-article",
+  research: "text-format-research",
+};
+
+export const FORMAT_DOT = {
+  video: "bg-format-video",
+  project: "bg-format-project",
+  post: "bg-format-post",
+  article: "bg-format-article",
+  research: "bg-format-research",
+};
+
 export const SORT_OPTIONS = [
   { value: "trending", label: "Trending" },
   { value: "newest", label: "Newest" },

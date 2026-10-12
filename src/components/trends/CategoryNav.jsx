@@ -7,7 +7,7 @@ import { PRIMARY_CATEGORIES } from "@/lib/categories";
 const ITEM =
   "relative inline-flex shrink-0 items-center gap-1 whitespace-nowrap border-b-2 border-transparent px-0 py-2.5 text-[13px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring";
 const IDLE = "text-muted-foreground hover:text-foreground";
-const ACTIVE = "border-brand font-medium text-foreground";
+const ACTIVE = "border-brand font-medium text-brand";
 
 // Compact category row: a quiet text row with an underline for the active selection. Every
 // label maps to existing trend identifiers (see lib/categories.js) and the categories the

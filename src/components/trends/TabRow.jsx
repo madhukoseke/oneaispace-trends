@@ -17,7 +17,7 @@ export default function TabRow({ label, tabs, value, onChange, className }) {
               "shrink-0 rounded-[7px] px-2.5 py-1 text-[13.5px] outline-none transition-colors duration-150",
               "focus-visible:ring-2 focus-visible:ring-ring",
               active
-                ? "bg-secondary font-medium text-foreground"
+                ? cn("bg-secondary font-medium", tab.tone || "text-foreground")
                 : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
             )}
           >

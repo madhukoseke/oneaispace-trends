@@ -10,7 +10,7 @@ export default function VerificationLabel({ item, className }) {
     <span
       title="Reported claim - not independently verified."
       className={cn(
-        "inline-flex items-center gap-1 rounded-[5px] border border-amber-500/35 px-1.5 py-[2px] text-[11px] font-medium leading-none text-amber-700 dark:text-amber-300/90",
+        "inline-flex items-center gap-1 rounded-[5px] border border-signal-caution/35 px-1.5 py-[2px] text-[11px] font-medium leading-none text-signal-caution",
         className
       )}
     >
