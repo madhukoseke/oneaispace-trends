@@ -269,7 +269,7 @@ test.describe("topic pages", () => {
     await expect(page.getByLabel("Filter by subtopic")).toBeVisible();
     await expect(page.getByLabel("Filter by source")).toBeVisible();
     await expect(page.getByLabel("Sort results")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Filters" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Tags/ })).toBeVisible();
   });
 
   test("every topic route renders the same structure with content", async ({ page }) => {
@@ -334,6 +334,78 @@ test.describe("saved items", () => {
     await expect
       .poll(async () => save.getAttribute("aria-pressed"), { timeout: 5000 })
       .not.toBe(before);
+  });
+});
+
+test.describe("multi-model transparency", () => {
+  test("the explanation sits beside Latest Developments and opens from the keyboard", async ({ page }) => {
+    await page.goto(TRENDS);
+    const section = page.locator('section[aria-labelledby="latest-developments"]');
+    if (!(await section.count())) return; // nothing eligible: the section is not rendered at all
+
+    const trigger = section.getByRole("button", { name: "How it works" });
+    await expect(trigger).toBeVisible();
+
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("How this works", { exact: true })).toBeVisible();
+    await expect(dialog.getByText(/GPT-6 Luna extracts developments and claims/)).toBeVisible();
+    await expect(dialog.getByText(/Typesafe Jev assesses whether the supplied source excerpts support those claims/)).toBeVisible();
+    await expect(dialog.getByText(/Deterministic checks validate quote and source provenance/)).toBeVisible();
+    await expect(dialog.getByText(/Only eligible developments appear in the public feed/)).toBeVisible();
+    await expect(dialog.getByText(/not independent verification/)).toBeVisible();
+    // Text only: no pipeline diagram, no imagery, no model marks.
+    expect(await dialog.locator("img, svg[role='img']").count()).toBe(0);
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+  });
+
+  test("the explanation fits a phone screen", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(TRENDS);
+    const section = page.locator('section[aria-labelledby="latest-developments"]');
+    if (!(await section.count())) return;
+
+    await section.getByRole("button", { name: "How it works" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+
+    const box = await dialog.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(Math.round(box.x + box.width)).toBeLessThanOrEqual(390);
+    expect(await noHorizontalOverflow(page)).toBe(true);
+  });
+
+  test("the detail page explains the workflow without exposing internal analysis", async ({ page }) => {
+    await page.goto(TRENDS);
+    const section = page.locator('section[aria-labelledby="latest-developments"]');
+    if (!(await section.count())) return;
+
+    await section.locator("article").first().getByRole("link", { name: /Explore/ }).click();
+    await expect(page).toHaveURL(/\/developments\/.+/);
+
+    const trigger = page.getByRole("button", { name: "How this was analyzed" });
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByText(/Deterministic checks validate quote and source provenance/)).toHaveCount(0);
+
+    await trigger.click();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByText(/Deterministic checks validate quote and source provenance/)).toBeVisible();
+    await expect(page.getByText(/is not published, so this describes the pipeline/)).toBeVisible();
+
+    // No private analysis metadata reaches the page.
+    const shown = (await page.locator('section[aria-labelledby="analysis-method"]').innerText()).toLowerCase();
+    for (const forbidden of [
+      "run_id", "authorization_id", "claim_id", "fingerprint", "prompt",
+      "provider_calls", "execution_flag", "cost", "token",
+    ]) {
+      expect(shown).not.toContain(forbidden);
+    }
   });
 });
 
