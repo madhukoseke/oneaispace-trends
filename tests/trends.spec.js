@@ -357,8 +357,11 @@ test.describe("multi-model transparency", () => {
     await expect(dialog.getByText(/Deterministic checks validate quote and source provenance/)).toBeVisible();
     await expect(dialog.getByText(/Only eligible developments appear in the public feed/)).toBeVisible();
     await expect(dialog.getByText(/not independent verification/)).toBeVisible();
-    // Text only: no pipeline diagram, no imagery, no model marks.
+    // The flow is drawn in ASCII, so there is no imagery and no model mark to load.
+    await expect(dialog.getByText("public feed: eligible only")).toBeVisible();
     expect(await dialog.locator("img, svg[role='img']").count()).toBe(0);
+    // The copy carries no em dashes.
+    expect((await dialog.innerText()).includes("—")).toBe(false);
 
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);

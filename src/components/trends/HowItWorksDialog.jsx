@@ -13,11 +13,11 @@ import {
 // that anything here has been checked against the world.
 const ROLES = [
   {
-    label: "Extraction — GPT-6 Luna",
+    label: "Extraction: GPT-6 Luna",
     body: "GPT-6 Luna extracts developments and claims from stored source material, including the stored excerpt each claim is based on.",
   },
   {
-    label: "Support evaluation — Typesafe Jev",
+    label: "Support evaluation: Typesafe Jev",
     body: "Typesafe Jev assesses whether the supplied source excerpts support those claims, and records that assessment.",
   },
   {
@@ -29,6 +29,31 @@ const ROLES = [
     body: "Only eligible developments appear in the public feed.",
   },
 ];
+
+// The sequence the pipeline code itself runs, in order: deterministic grouping, the extraction
+// call, the deterministic claim check against the stored record, the assessment call,
+// finalisation, then the feed gate the reader's own row had to pass.
+const FLOW = `stored source records
+  |
+  +- deterministic grouping
+  |
+  +- extraction: GPT-6 Luna
+  |    -> developments + claims
+  |
+  +- deterministic claim check
+  |    quote verbatim in the record
+  |
+  +- support evaluation: Typesafe Jev
+  |    -> supported / partial /
+  |       mixed / contradicted /
+  |       not evaluated
+  |
+  +- finalized rows, batch criteria
+  |
+  +- feed gate: authorized,
+  |    executed, completed batch
+  |
+public feed: eligible only`;
 
 export default function HowItWorksDialog() {
   return (
@@ -66,6 +91,11 @@ export default function HowItWorksDialog() {
           It is a model's judgement about a quote taken from the stored record. Nothing here has been checked against
           the world.
         </p>
+
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Flow</p>
+          <pre className="mt-2 overflow-x-auto font-mono text-[11px] leading-[1.6] text-muted-foreground">{FLOW}</pre>
+        </div>
       </DialogContent>
     </Dialog>
   );

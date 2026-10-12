@@ -5,11 +5,11 @@ import { cn } from "@/lib/utils";
 
 const STEPS = [
   {
-    label: "Extraction — GPT-6 Luna",
+    label: "Extraction: GPT-6 Luna",
     body: "GPT-6 Luna extracts developments and claims from stored source material, including the stored excerpt each claim is based on.",
   },
   {
-    label: "Support evaluation — Typesafe Jev",
+    label: "Support evaluation: Typesafe Jev",
     body: "Typesafe Jev assesses whether the supplied source excerpts support those claims, and records that assessment.",
   },
   {
