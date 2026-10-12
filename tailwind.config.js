@@ -45,15 +45,8 @@ module.exports = {
   				DEFAULT: 'hsl(var(--brand))',
   				foreground: 'hsl(var(--brand-foreground))'
   			},
-  			format: {
-  				video: 'hsl(var(--format-video))',
-  				project: 'hsl(var(--format-project))',
-  				post: 'hsl(var(--format-post))',
-  				article: 'hsl(var(--format-article))',
-  				research: 'hsl(var(--format-research))'
-  			},
   			signal: {
-  				caution: 'hsl(var(--signal-caution))'
+  				fire: 'hsl(var(--signal-fire))'
   			},
   			surface: {
   				DEFAULT: 'hsl(var(--surface))',

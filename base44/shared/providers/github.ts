@@ -3,6 +3,15 @@
 import { GITHUB_SEARCHES, USER_AGENT } from "../sources.ts";
 import { clip, stripHtml } from "../normalize.ts";
 
+// A repository's own preview, served by GitHub for that repository and derived from its
+// canonical url. It is the only preview a repository has: GitHub publishes no screenshot of a
+// repository page, so nothing is composed here and no third party is asked for an image.
+function repoPreview(htmlUrl) {
+  const match = String(htmlUrl || "").match(/^https?:\/\/github\.com\/([^/]+)\/([^/#?]+)/i);
+  if (!match) return "";
+  return `https://opengraph.githubassets.com/1/${match[1]}/${match[2].replace(/\.git$/i, "")}`;
+}
+
 export const githubProvider = {
   key: "github",
   label: "GitHub",
@@ -43,6 +52,8 @@ export const githubProvider = {
             pushed_at: repo.pushed_at || "",
             topics: (repo.topics || []).slice(0, 6),
           },
+          thumbnail_url: repoPreview(repo.html_url),
+          media_kind: "landscape",
           provenance_url: repo.html_url,
           provenance_label: "Repository",
         });

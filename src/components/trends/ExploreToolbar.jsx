@@ -1,3 +1,4 @@
+import { Flame } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import TagFilterPopover from "./TagFilterPopover";
 import ActiveFilters from "./ActiveFilters";
@@ -53,7 +54,13 @@ export default function ExploreToolbar({ state, facets, total, topics = [], onPa
           <SelectContent className="rounded-[10px]">
             {SORT_OPTIONS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
-                Sort: {option.label}
+                <span className="inline-flex items-center gap-1.5">
+                  {/* The one warm mark in the control row: this option is the trending order. */}
+                  {option.value === "trending" ? (
+                    <Flame className="h-3.5 w-3.5 text-signal-fire" aria-hidden="true" />
+                  ) : null}
+                  Sort: {option.label}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>

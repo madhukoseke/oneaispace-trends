@@ -240,12 +240,16 @@ test.describe("source cards", () => {
     await expect(original).toHaveAttribute("target", "_blank");
   });
 
-  test("repository items keep one name and no repeating preview image", async ({ page }) => {
+  test("repository items keep one name and carry their own preview", async ({ page }) => {
     await page.goto(`${TRENDS}?format=project`);
     const card = page.locator("article").first();
     await expect(card).toBeVisible();
     await expect(card.getByText("REPOSITORY", { exact: false })).toBeVisible();
-    expect(await card.locator("img").count()).toBe(0);
+    // GitHub supplies one preview per repository: it appears at most once, and the name it
+    // repeats is not a second heading.
+    const previews = card.locator("img");
+    expect(await previews.count()).toBeLessThanOrEqual(1);
+    expect(await card.locator("h3").count()).toBe(1);
   });
 });
 

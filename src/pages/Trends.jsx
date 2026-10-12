@@ -3,7 +3,7 @@ import TrendsHeader from "@/components/trends/TrendsHeader";
 import CategoryNav from "@/components/trends/CategoryNav";
 import FormatTabs from "@/components/trends/FormatTabs";
 import ExploreToolbar from "@/components/trends/ExploreToolbar";
-import SourceList from "@/components/trends/SourceList";
+import DiscoveryGrid from "@/components/trends/DiscoveryGrid";
 import SectionHeading from "@/components/trends/SectionHeading";
 import LatestDevelopments from "@/components/trends/LatestDevelopments";
 import useDiscovery from "@/hooks/useDiscovery";
@@ -104,7 +104,7 @@ export default function Trends() {
         </div>
 
         <div className="mt-4">
-          <SourceList
+          <DiscoveryGrid
             items={items}
             loading={loading}
             error={error}

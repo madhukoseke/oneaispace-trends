@@ -50,14 +50,10 @@
     --ring: 228 55% 55%;
     --brand: 228 55% 48%;
     --brand-foreground: 0 0% 100%;
-    /* Two purposes only: format identity (a dot and a micro-label) and the caution
-       signal for a claim the source reports but nobody has verified. Never a surface. */
-    --format-video: 340 68% 44%;
-    --format-project: 152 52% 32%;
-    --format-post: 199 78% 36%;
-    --format-article: 228 55% 48%;
-    --format-research: 268 58% 48%;
-    --signal-caution: 32 85% 36%;
+    /* The warm signal, and the only color besides the brand: a fire tone used where a mark is
+       genuinely necessary - the trending order, and a claim the source reports but nobody has
+       verified. Never a surface, and never a per-format hue. */
+    --signal-fire: 32 85% 36%;
     --surface: 240 5% 96.5%;
     --surface-elevated: 0 0% 100%;
     --radius: 0.625rem;
@@ -90,12 +86,7 @@
     --ring: 228 45% 67%;
     --brand: 228 45% 67%;
     --brand-foreground: 210 11% 4%;
-    --format-video: 340 72% 72%;
-    --format-project: 152 48% 62%;
-    --format-post: 199 72% 66%;
-    --format-article: 228 50% 74%;
-    --format-research: 268 62% 74%;
-    --signal-caution: 38 88% 64%;
+    --signal-fire: 38 88% 64%;
     --surface: 216 15% 6.5%;
     --surface-elevated: 216 17% 9%;
   }

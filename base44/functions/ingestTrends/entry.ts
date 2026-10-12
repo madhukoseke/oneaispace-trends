@@ -176,7 +176,7 @@ export default async function (req) {
     await chunked(candidates.map((item) => item.canonical_key), KEY_CHUNK, async (keys) => {
       const page = await db.Item.filter({ canonical_key: { $in: keys } }, {
         limit: 200,
-        fields: ['id', 'canonical_key', 'metric_value', 'score', 'excerpt'],
+        fields: ['id', 'canonical_key', 'metric_value', 'score', 'excerpt', 'thumbnail_url', 'media_kind'],
       });
       for (const row of page.items || []) existingByKey.set(row.canonical_key, row);
     });
@@ -203,7 +203,8 @@ export default async function (req) {
     for (const item of candidates) {
       const row = existingByKey.get(item.canonical_key);
       if (!row) continue;
-      if (Number(row.metric_value) !== item.metric_value || row.score !== item.score) {
+      const previewChanged = Boolean(item.thumbnail_url) && item.thumbnail_url !== String(row.thumbnail_url || '');
+      if (Number(row.metric_value) !== item.metric_value || row.score !== item.score || previewChanged) {
         const update = {
           id: row.id,
           metric_value: item.metric_value,
@@ -219,6 +220,13 @@ export default async function (req) {
         // dropped its description must not erase text this catalogue already holds.
         if (item.excerpt && item.excerpt.length >= String(row.excerpt || '').length) {
           update.excerpt = item.excerpt;
+        }
+        // A stored preview follows its source the same way: it is refreshed whenever the source
+        // supplies one, and a source that has stopped supplying a preview never erases the image
+        // this catalogue already holds.
+        if (item.thumbnail_url) {
+          update.thumbnail_url = item.thumbnail_url;
+          update.media_kind = item.media_kind || 'landscape';
         }
         updates.push(update);
       }

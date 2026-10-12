@@ -14,20 +14,18 @@ export default function SourceCard({ item }) {
   const href = isHttpUrl(item.canonical_url) ? item.canonical_url : "";
   const date = calendarDate(item.published_at);
   const meta = [FORMAT_NOUN[item.format] || "", String(item.source || "").trim()].filter(Boolean);
-  // A repository's own preview repeats its name and description, so it is not shown.
-  const showMedia = item.format !== "project";
 
   return (
     <CardShell>
-      {showMedia ? (
-        <SourceMedia item={item}>
-          {item.format === "video" ? (
-            <span className="absolute bottom-2 left-2 grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white">
-              <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
-            </span>
-          ) : null}
-        </SourceMedia>
-      ) : null}
+      {/* Every format shows the preview its own source supplies, a repository included. A record
+          with no supplied preview stays media-free rather than showing stand-in artwork. */}
+      <SourceMedia item={item}>
+        {item.format === "video" ? (
+          <span className="absolute bottom-2 left-2 grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white">
+            <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+          </span>
+        ) : null}
+      </SourceMedia>
 
       <div className="px-3.5 pt-3.5">
         {meta.length ? (

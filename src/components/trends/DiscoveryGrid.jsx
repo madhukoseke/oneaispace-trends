@@ -2,8 +2,9 @@ import { Button } from "@/components/ui/button";
 import SourceCard from "./cards/SourceCard";
 import { DiscoveryEmpty, DiscoveryError, DiscoverySkeleton } from "./DiscoveryStates";
 
-// Aligned grid, no masonry: three columns on a wide desktop, two at
-// intermediate widths, one on mobile. Cards keep their own height.
+// Aligned grid, no masonry: three columns on a wide desktop, two at intermediate widths, one on
+// mobile. Every card in a row is the same height, so a category reads as one grid rather than a
+// column of differently sized boxes.
 export default function DiscoveryGrid({
   items, loading, error, hasMore, onLoadMore, onReset, onRetry, emptyHint, emptyTitle, emptyAction,
 }) {
@@ -22,7 +23,7 @@ export default function DiscoveryGrid({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {items.map((item) => (
           <SourceCard key={item.id} item={item} />
         ))}

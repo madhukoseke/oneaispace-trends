@@ -10,13 +10,13 @@ export default function SourceMedia({ item, className, children }) {
   const src = isHttpUrl(item.thumbnail_url) ? item.thumbnail_url : "";
   if (!src || failed) return null;
 
-  const portrait = item.media_kind === "portrait";
-
+  // One ratio for every preview, so cards in a grid line up: a portrait source is cropped to the
+  // same 16:9 frame rather than given a column of its own.
   return (
     <div
       className={cn(
         "relative w-full overflow-hidden border-b border-border/60 bg-muted",
-        portrait ? "aspect-[4/5]" : "aspect-video",
+        "aspect-video",
         className
       )}
     >
