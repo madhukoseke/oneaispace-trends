@@ -19,10 +19,8 @@
 import { PRICE_ESTIMATES_USD_PER_MTOK, ESTIMATE_TOKENS } from './modelProofConfig.ts';
 
 export const DEV_ANALYSIS_CONFIG = {
-  // Off by default and untouched by the pipeline itself. Armed by a deliberate human edit for
-  // one operator-requested batch over the newest lab and research sources (2026-10-12), and
-  // disarmed again as soon as that batch ends.
-  execution_enabled: true,
+  // Off by default and untouched by the pipeline itself.
+  execution_enabled: false,
   stage: 'phase2a-development-analysis',
   trigger: 'manual',
 
@@ -70,6 +68,15 @@ export const DEV_ANALYSIS_CONFIG = {
   price_table: PRICE_ESTIMATES_USD_PER_MTOK,
   estimate_tokens: ESTIMATE_TOKENS,
 };
+
+// The revision of the analysis rules and of the extraction prompt that produced a stored
+// analysis. It is part of every source fingerprint, so a change in what the pipeline asks of a
+// model makes an earlier analysis of the same stored text non-current instead of being reported
+// as coverage. Revision r2 aligned the text a model is shown with the text its evidence quote is
+// checked against: before it, the prompt joined a record's title and excerpt with ". " while the
+// evidence check joined them with a single space, so a quote copied faithfully from the prompt
+// was rejected as not being in the stored record.
+export const ANALYSIS_REVISION = 'r2';
 
 // The development kinds this pipeline is allowed to record. A kind outside this list
 // is never invented into one: it is recorded as "unspecified" and reported.
@@ -191,7 +198,7 @@ export const DEV_LIMITATIONS = {
   model_opinion:
     "The support assessment is a model's opinion about the supplied excerpt. It is stored beside the evidence check, never in place of it, and is never presented as a verified fact.",
   cache_semantics:
-    'Idempotency is keyed on a fingerprint of each source record (id, canonical url, publication timestamp, title, excerpt). A record whose stored text is unchanged is covered by its earlier analysis and is not sent to a model again; a record whose text changes has a new fingerprint and is analysed afresh. Coverage means "this exact stored text was analysed before", not "this development is unchanged in the world".',
+    'Idempotency is keyed on a fingerprint of each source record (id, canonical url, publication timestamp, title, excerpt) together with the analysis revision in ANALYSIS_REVISION. A record whose stored text and rules are unchanged is covered by its earlier analysis and is not sent to a model again; a record whose text changes, or a revision that changes what is asked of the model, has a new fingerprint and is analysed afresh. Coverage means "this exact stored text was analysed by these rules before", not "this development is unchanged in the world".',
   grouping:
     'Candidate grouping is deterministic: records are linked by a shared named model or version identifier, or by an identical normalised title, and records that share only generic vocabulary are deliberately left apart. The grouping is a candidate list for the extraction step, not a claim about the world.',
   content_state:

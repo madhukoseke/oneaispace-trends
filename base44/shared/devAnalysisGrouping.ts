@@ -15,13 +15,15 @@
 // merge instead of being joined. Records that share only generic vocabulary are refused
 // the same way, so "everything mentioning AI agents" cannot collapse into one candidate.
 //
-// A record fingerprint covers the stored text that analysis actually consumes. It is
-// how the pipeline knows a record's analysis is still current, so an unchanged record
-// is never sent to a model twice.
+// A record fingerprint covers the stored text that analysis actually consumes and the revision
+// of the rules that analysed it. It is how the pipeline knows a record's analysis is still
+// current, so an unchanged record is never sent to a model twice, and a record analysed under
+// older rules is not reported as current.
 
 import { canonicalKey, clip, titleKey } from './normalize.ts';
 import { normalizeForMatch } from './modelProofCriteria.ts';
 import {
+  ANALYSIS_REVISION,
   CONTENT_STATES, GENERIC_GROUPING_TOKENS, NAMED_AI_FAMILIES, RELEASE_VERBS,
   RESEARCH_PUBLICATION_PHRASES, RESEARCH_TITLE_ARTIFACT_STOPWORDS, RESEARCH_TITLE_CONTRIBUTION_WORDS,
   RESEARCH_VENUE_PHRASES,
@@ -41,19 +43,27 @@ export function hashString(value) {
   return `${a.toString(16).padStart(8, '0')}${b.toString(16).padStart(8, '0')}`;
 }
 
-// The stored text a model is allowed to see for one record: its title and its excerpt,
-// clipped. Nothing else is sent, and no network fetch is performed.
-export function sourceText(item, maxChars = 700) {
-  return clip(`${item.title || ''}. ${item.excerpt || ''}`, maxChars);
+// What the evidence check compares against: the stored title and excerpt, joined. The join is
+// stated once, here, because the text a model is shown and the text its quote is checked
+// against must be the same string. Joining the two fields differently in the prompt builder
+// rejected a quote the pipeline had itself shown the model: the check requires the quote to be
+// a literal substring of this text, so a faithful copy has to be able to pass.
+export function sourceRecordText(item) {
+  return `${item.title || ''}. ${item.excerpt || ''}`;
 }
 
-// What the evidence check compares against: the stored title and excerpt, normalised.
-export function sourceRecordText(item) {
-  return `${item.title || ''} ${item.excerpt || ''}`;
+// The stored text a model is allowed to see for one record: its title and its excerpt,
+// clipped, joined exactly as sourceRecordText joins them. Nothing else is sent, and no network
+// fetch is performed.
+export function sourceText(item, maxChars = 700) {
+  return clip(sourceRecordText(item), maxChars);
 }
 
 export function itemFingerprint(item) {
   return hashString([
+    // The analysis revision belongs to the identity of an analysis: a cached entry produced by
+    // older rules no longer covers this record.
+    ANALYSIS_REVISION,
     item.id || '',
     canonicalKey(item.canonical_url),
     item.published_at || '',
